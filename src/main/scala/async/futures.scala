@@ -2,7 +2,7 @@ package concurrent
 
 import scala.collection.mutable, mutable.ListBuffer
 import fiberRuntime.util.*
-import fiberRuntime.boundary
+import runtime.*
 import scala.compiletime.uninitialized
 import scala.util.{Try, Success, Failure}
 import scala.annotation.unchecked.uncheckedVariance
@@ -93,44 +93,36 @@ object Future:
 
     /** a handler for Async */
     private def async(body: Async ?=> Unit): Unit =
-      class FutureAsync(val group: CancellationGroup)(using val scheduler: ExecutionContext) extends Async:
+      boundary[Unit]:
+        class FutureAsync(val group: CancellationGroup)(using val scheduler: ExecutionContext) extends Async:
 
-        /** Await a source first by polling it, and, if that fails, by suspending
-         *  in a onComplete call.
-         */
-        def await[T](src: Async.Source[T]): T =
-          checkCancellation()
-          src.poll().getOrElse:
-            try
-              src.poll().getOrElse:
-                sleepABit()
-                log(s"suspending ${threadName.get()}")
-                var result: Option[T] = None
-                src.onComplete: x =>
-                  synchronized:
-                    result = Some(x)
-                    notify()
-                  true
-                sleepABit()
-                synchronized:
-                  log(s"suspended ${threadName.get()}")
-                  while result.isEmpty do wait()
-                  result.get
-              /* With full continuations, the try block can be written more simply as follows:
-
+          /** Await a source first by polling it, and, if that fails, by suspending
+           *  in a onComplete call.
+           */
+          def await[T](src: Async.Source[T]): T =
+            checkCancellation()
+            src.poll().getOrElse:
+              try
                 suspend[T, Unit]: k =>
                   src.onComplete: x =>
-                    scheduler.schedule: () =>
+                    scheduler.execute: () =>
                       k.resume(x)
-                  true
-              */
-            finally checkCancellation()
+                    true
+                /* With full continuations, the try block can be written more simply as follows:
 
-        def withGroup(group: CancellationGroup) = FutureAsync(group)
+                  suspend[T, Unit]: k =>
+                    src.onComplete: x =>
+                      scheduler.schedule: () =>
+                        k.resume(x)
+                    true
+                */
+              finally checkCancellation()
 
-      sleepABit()
-      try body(using FutureAsync(ac.group)(using ac.scheduler))
-      finally log(s"finished ${threadName.get()} ${Thread.currentThread.getId()}")
+          def withGroup(group: CancellationGroup) = FutureAsync(group)
+
+        sleepABit()
+        try body(using FutureAsync(ac.group)(using ac.scheduler))
+        finally log(s"finished ${threadName.get()} ${Thread.currentThread.getId()}")
       /** With continuations, this becomes:
 
       boundary [Unit]:

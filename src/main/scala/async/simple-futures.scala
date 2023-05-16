@@ -1,8 +1,7 @@
 package simpleFutures
 
 import scala.collection.mutable.ListBuffer
-import scala.util.boundary, boundary.Label
-import runtime.suspend
+import runtime.{boundary, suspend}
 
 object Scheduler:
   def schedule(task: Runnable): Unit = ???

@@ -22,7 +22,7 @@ lazy val root = project
     // defaults set with common options shown
     nativeConfig ~= { c =>
       c.withLTO(LTO.none) // thin
-        .withMode(Mode.debug) // releaseFast
+        .withMode(Mode.releaseFast) // releaseFast
         .withGC(GC.immix) // commix
         .withMultithreadingSupport(true) 
     }

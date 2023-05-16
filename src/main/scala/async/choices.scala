@@ -1,5 +1,4 @@
-import scala.util.boundary, boundary.Label
-import runtime.suspend
+import runtime.{suspend, boundary}
 
 trait Choice:
   def choose[A](choices: A*): A
