@@ -1,4 +1,4 @@
-val scala3Version = "3.3.0-RC4"
+val scala3Version = "3.3.0"
 
 enablePlugins(ScalaNativePlugin)
 
@@ -13,7 +13,6 @@ lazy val root = project
   .settings(
     name := "Scala 3 Async Prototype",
     version := "0.1.0-SNAPSHOT",
-
     scalaVersion := scala3Version,
     javaOptions += "--enable-preview --version 19",
 
