@@ -7,8 +7,8 @@ object util:
 
   private val rand = new java.util.Random
 
-  def sleepABit() =
-    Thread.sleep(rand.nextInt(100))
+  def sleepABit() = ()
+    // Thread.sleep(rand.nextInt(100))
 
 
   val threadName = new ThreadLocal[String]
