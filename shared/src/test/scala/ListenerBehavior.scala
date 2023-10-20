@@ -3,7 +3,7 @@ import gears.async.Future
 import gears.async.Future.Promise
 import gears.async.Async
 import gears.async.Listener
-import gears.async.given
+import gears.async.default.given
 import scala.util.Success
 import gears.async.Listener.ListenerLock
 import gears.async.Listener.LockContext
