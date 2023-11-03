@@ -11,7 +11,7 @@ import scala.util.Random
 import scala.collection.mutable.{ArrayBuffer, Set}
 import java.util.concurrent.atomic.AtomicInteger
 
-abstract class ChannelBehavior extends munit.FunSuite {
+class ChannelBehavior extends munit.FunSuite {
 
   given ExecutionContext = ExecutionContext.global
 
@@ -153,7 +153,7 @@ abstract class ChannelBehavior extends munit.FunSuite {
   test("reading a closed channel returns Failure(ChannelClosedException)") {
     Async.blocking:
       val c1 = SyncChannel[Int]()
-      val c2 = SyncChannel[Int]()
+      val c2 = BufferedChannel[Int]()
       c1.close()
       c2.close()
       c1.read() match {
@@ -169,7 +169,7 @@ abstract class ChannelBehavior extends munit.FunSuite {
   test("writing to a closed channel throws ChannelClosedException") {
     Async.blocking:
       val c1 = SyncChannel[Int]()
-      val c2 = SyncChannel[Int]()
+      val c2 = BufferedChannel[Int]()
       c1.close()
       c2.close()
       var thrown1 = false
@@ -192,18 +192,18 @@ abstract class ChannelBehavior extends munit.FunSuite {
     val c1 = SyncChannel[Int]()
     val c2 = BufferedChannel[Int](1024)
     for (c <- List(c1, c2)) {
-      var sum = 0
+      var sum = 0L
       Async.blocking:
         val f1 = Future:
-          for (i <- 1 to 10000)
+          for (i <- 1 to 100000)
             c.send(i)
 
         val f2 = Future:
-          for (i <- 1 to 10000)
+          for (i <- 1 to 100000)
             sum += c.read().get
 
         f2.result
-        assertEquals(sum, 50005000)
+        assertEquals(sum, 5000050000L)
     }
   }
 
