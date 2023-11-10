@@ -198,15 +198,15 @@ class ChannelBehavior extends munit.FunSuite {
       var sum = 0L
       Async.blocking:
         val f1 = Future:
-          for (i <- 1 to 10000)
+          for (i <- 1 to 100000)
             c.send(i)
 
         val f2 = Future:
-          for (i <- 1 to 10000)
+          for (i <- 1 to 100000)
             sum += c.read().get
 
         f2.result
-        assertEquals(sum, 50005000L)
+        assertEquals(sum, 5000050000L)
     }
   }
 

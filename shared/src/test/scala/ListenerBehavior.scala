@@ -3,10 +3,9 @@ import gears.async.Future
 import gears.async.Future.Promise
 import gears.async.Async
 import gears.async.Listener
+import gears.async.Locker
 import gears.async.default.given
 import scala.util.Success
-import gears.async.Listener.ListenerLock
-import gears.async.Listener.LockContext
 
 class ListenerBehavior extends munit.FunSuite:
   test("race two futures"):
@@ -21,28 +20,33 @@ class ListenerBehavior extends munit.FunSuite:
   test("lock two listeners"):
     val listener1 = Listener.acceptingListener[Int](x => assertEquals(x, 1))
     val listener2 = Listener.acceptingListener[Int](x => assertEquals(x, 2))
-    val (lock1, lock2) = Listener.lockBoth(listener1, listener2).right.get
-    lock1.complete(1)
-    lock2.complete(2)
+    val (lock1, lock2) = Listener.lockBoth(listener1, listener2)
+    listener1.complete(1)(using lock1)
+    listener2.complete(2)(using lock2)
 
   test("lock two listeners, one fails"):
     var listener1Locked = false
     val listener1 = new Listener[Nothing]:
-      def tryLock()(using LockContext): Option[ListenerLock[Nothing]] =
-        listener1Locked = true
-        Some(new ListenerLock[Nothing] {
-          def complete(data: Nothing): Unit =
-            fail("should not succeed")
-            listener1Locked = false
-          def release(): Unit = listener1Locked = false
-        })
+      type Key = Unit
+      def tryLock() = new Locker[Key]:
+        def number = 1
+        def lock() =
+          listener1Locked = true
+          Some(())
+        def release() = listener1Locked = false
+      def complete(data: Nothing)(using Key): Unit =
+        fail("should not succeed")
+        listener1Locked = false
     val listener2 = new Listener[Nothing]:
-      def tryLock()(using LockContext): Option[ListenerLock[Nothing]] = None
+      def tryLock() = None
+      def complete(data: Nothing)(using Key): Unit =
+        fail("should not succeed")
 
-    assertEquals(Listener.lockBoth(listener1, listener2), Left(listener2))
+
+    assertEquals(Listener.lockBoth(listener1, listener2).asInstanceOf[Listener[?]], listener2)
     assert(!listener1Locked)
 
-    assertEquals(Listener.lockBoth(listener2, listener1), Left(listener2))
+    assertEquals(Listener.lockBoth(listener2, listener1).asInstanceOf[Listener[?]], listener2)
     assert(!listener1Locked)
 
   test("lock two races"):
@@ -52,9 +56,10 @@ class ListenerBehavior extends munit.FunSuite:
     Async.race(source1).onComplete(Listener.acceptingListener[Int](x => assertEquals(x, 1)))
     Async.race(source2).onComplete(Listener.acceptingListener[Int](x => assertEquals(x, 2)))
 
-    val (lock1, lock2) = Listener.lockBoth(source1.listener.get, source2.listener.get).right.get
-    lock1.complete(1)
-    lock2.complete(2)
+    val (l1, l2) = (source1.listener.get, source2.listener.get)
+    val (lock1, lock2) = Listener.lockBoth(l1, l2)
+    l1.complete(1)(using lock1)
+    l2.complete(2)(using lock2)
 
   test("lock two races in reverse order"):
     val source1 = TSource()
@@ -63,9 +68,10 @@ class ListenerBehavior extends munit.FunSuite:
     Async.race(source1).onComplete(Listener.acceptingListener[Int](x => assertEquals(x, 1)))
     Async.race(source2).onComplete(Listener.acceptingListener[Int](x => assertEquals(x, 2)))
 
-    val (lock2, lock1) = Listener.lockBoth(source2.listener.get, source1.listener.get).right.get
-    lock1.complete(1)
-    lock2.complete(2)
+    val (l1, l2) = (source1.listener.get, source2.listener.get)
+    val (lock2, lock1) = Listener.lockBoth(l2, l1)
+    l1.complete(1)(using lock1)
+    l2.complete(2)(using lock2)
 
   test("lock two nested races"):
     val source1 = TSource()
@@ -75,9 +81,10 @@ class ListenerBehavior extends munit.FunSuite:
     Async.race(Async.race(source2)).onComplete(Listener.acceptingListener[Int](x => assertEquals(x, 2)))
     Async.race(race1).onComplete(Listener.acceptingListener[Int](x => assertEquals(x, 1)))
 
-    val (lock1, lock2) = Listener.lockBoth(source1.listener.get, source2.listener.get).right.get
-    lock1.complete(1)
-    lock2.complete(2)
+    val (l1, l2) = (source1.listener.get, source2.listener.get)
+    val (lock1, lock2) = Listener.lockBoth(l1, l2)
+    l1.complete(1)(using lock1)
+    l2.complete(2)(using lock2)
 
   test("lock two nested races in reverse order"):
     val source1 = TSource()
@@ -87,9 +94,10 @@ class ListenerBehavior extends munit.FunSuite:
     Async.race(Async.race(source2)).onComplete(Listener.acceptingListener[Int](x => assertEquals(x, 2)))
     Async.race(race1).onComplete(Listener.acceptingListener[Int](x => assertEquals(x, 1)))
 
-    val (lock2, lock1) = Listener.lockBoth(source2.listener.get, source1.listener.get).right.get
-    lock1.complete(1)
-    lock2.complete(2)
+    val (l1, l2) = (source1.listener.get, source2.listener.get)
+    val (lock2, lock1) = Listener.lockBoth(l2, l1)
+    l1.complete(1)(using lock1)
+    l2.complete(2)(using lock2)
 
   private class TSource extends Async.Source[Int]:
     var listener: Option[Listener[Int]] = None

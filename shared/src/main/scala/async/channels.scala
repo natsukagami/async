@@ -58,7 +58,7 @@ trait Channel[T] extends SendableChannel[T], ReadableChannel[T], java.io.Closeab
 
   protected type Reader = Listener[ReadResult]
   protected type Sender = Listener[SendResult]
-  protected def complete(item: T, reader: Listener.ListenerLock[ReadResult], sender: Listener.ListenerLock[SendResult]) =
+  protected def complete(item: T, reader: Listener[ReadResult], sender: Listener[SendResult])(using reader.Key, sender.Key) =
     reader.complete(Read(item))
     sender.complete(Sent)
 
@@ -104,11 +104,11 @@ trait Channel[T] extends SendableChannel[T], ReadableChannel[T], java.io.Closeab
       while hasSender do
         val (item, sender) = nextSender
         lockBoth(r, sender) match
-          case Right((read, send)) =>
-            Channel.this.complete(item, read, send)
+          case (read, send) =>
+            Channel.this.complete(item, r, sender)(using read, send)
             dequeue()
             return true
-          case Left(listener) =>
+          case listener: Listener[?] =>
             if listener == r then
               return true
             else
@@ -119,11 +119,11 @@ trait Channel[T] extends SendableChannel[T], ReadableChannel[T], java.io.Closeab
       while hasReader do
         val reader = nextReader
         lockBoth(reader, s) match
-          case Right((read, send)) =>
-            Channel.this.complete(item, read, send)
+          case (read, send) =>
+            Channel.this.complete(item, reader, s)(using read, send)
             dequeue()
             return true
-          case Left(listener) =>
+          case listener: Listener[?] =>
             if listener == s then
               return true
             else

@@ -3,8 +3,6 @@ import java.util.concurrent.atomic.AtomicBoolean
 import scala.collection.mutable
 import java.util.concurrent.locks.ReentrantLock
 import java.util.concurrent.atomic.AtomicLong
-import gears.async.Listener.ListenerLock
-import gears.async.Listener.LockContext
 
 /** A context that allows to suspend waiting for asynchronous data sources
  */
@@ -135,36 +133,18 @@ object Async:
 
   /** A source that transforms an original source in some way */
   abstract class DerivedSource[T, U](val original: Source[T]) extends Source[U]:
-
-    /** Handle a lock request `x` received from the original source by possibly
-     *  requesting the upstream listener for this source. The default behavior
-     *  is to try to lock the upstream listener.
-     */
-    protected def tryLock(k: Listener[U])(using Listener.LockContext): Option[Listener.ListenerLock[U]] = k.tryLock()
-
-    /** Handle a release request for a previous lock from the original source by
-     *  passing on any operation (complete/release) to the upstream listener for
-     *  this source. The default behavior is to forward the release operation.
-     */
-    protected def release(k: Listener.ListenerLock[U]): Unit =
-      k.release()
-
     /** Handle a complete request for a previous lock from the original source by
      *  passing on any operation (complete/release) to the upstream listener for
      *  this source.
      */
-    protected def complete(k: Listener.ListenerLock[U], data: T): Unit
+    protected def complete(data: T, inner: Listener[U])(using inner.Key): Unit
 
     private def transform(k: Listener[U]): Listener[T] =
       new Listener.ForwardingListener[T](this, k){
-        def tryLock()(using LockContext): Option[ListenerLock[T]] =
-          DerivedSource.this.tryLock(k).map { lock =>
-            new ListenerLock[T]:
-              def release(): Unit = DerivedSource.this.release(lock)
+        type Key = k.Key
 
-              def complete(data: T): Unit =
-                DerivedSource.this.complete(lock, data)
-          }
+        override def complete(item: T)(using Key) = DerivedSource.this.complete(item, k)
+        override def tryLock() = k.tryLock()
       }
 
     def poll(k: Listener[U]): Boolean =
@@ -180,65 +160,48 @@ object Async:
     /** Pass on data transformed by `f` */
     def map[U](f: T => U): Source[U] =
       new DerivedSource[T, U](src):
-        protected def complete(k: ListenerLock[U], data: T): Unit =
-          k.complete(f(data))
+        protected def complete(data: T, inner: Listener[U])(using inner.Key): Unit =
+          inner.complete(f(data))
 
   /** Pass first result from any of `sources` to the continuation */
   def race[T](sources: Source[T]*): Source[T] =
+    class RaceListener[T](src: Source[T], val k: Listener[T]) extends Listener.ForwardingListener[T](src, k):
+      type Key = k.Key
+      var found = false
+      private val nl = Listener.NumberedLock()
+      val locker = new Locker[Key]:
+        val number = nl.number
+        def lock() =
+          if found then return None
+          nl.lock()
+          if found then
+            nl.unlock()
+            None
+          else k.tryLock()
+        def release() =
+          nl.unlock()
+      override def tryLock() = locker
+      override def complete(item: T)(using Key) =
+        k.complete(item)
+        found = true
+        nl.unlock()
+    end RaceListener
     new Source[T] {
-
       def poll(k: Listener[T]): Boolean =
         val it = sources.iterator
-        var found = false
 
-        val listener = new Listener[T]:
-          def tryLock()(using ctx: Listener.LockContext): Option[Listener.ListenerLock[T]] =
-            k.tryLock() match
-              case None =>
-                found = true
-                None
-              case Some(lock) => Some(new Listener.ListenerLock{
-                def release(): Unit = lock.release()
-                def complete(data: T): Unit =
-                  found = true
-                  lock.complete(data)
-              })
-        end listener
+        val listener = RaceListener(this, k)
 
-        while it.hasNext && !found do
+        while it.hasNext && !listener.found do
           it.next.poll(listener)
-        found
+        listener.found
 
       def onComplete(k: Listener[T]): Unit =
-        val listener = new Listener.ForwardingListener[T](this, k) with Listener.LockingListener { self =>
-          var foundBefore = false
-
-          def tryLock()(using Listener.LockContext): Option[Listener.ListenerLock[T]] =
-            if foundBefore then None
-            else
-              k.tryLock().flatMap: lock =>
-                try this.lock()
-                finally lock.release()
-
-                if foundBefore then
-                  self.unlock()
-                  lock.release()
-                  None
-                else Some(new Listener.ListenerLock[T] {
-                  def release(): Unit =
-                    self.unlock()
-                    lock.release()
-                  def complete(data: T): Unit =
-                    foundBefore = true
-                    self.unlock()
-                    lock.complete(data)
-                })
-        }
+        val listener = RaceListener(this, k)
         sources.foreach(_.onComplete(listener))
 
       def dropListener(k: Listener[T]): Unit =
-        val listener = new Listener.ForwardingListener[T](this, k):
-          def tryLock()(using Listener.LockContext): Option[Listener.ListenerLock[T]] = ???
+        val listener = Listener.emptyForwarding[T](this, k)
         // not to be called, we need the listener only for its
         // hashcode and equality test.
         sources.foreach(_.dropListener(listener))
