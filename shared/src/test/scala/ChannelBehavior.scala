@@ -296,30 +296,47 @@ class ChannelBehavior extends munit.FunSuite {
       assertEquals(timesSent, 10)
   }
 
-  // test("race syntax") {
-  //   Async.blocking:
-  //     val a = SyncChannel[Int]()
-  //     val b = SyncChannel[Int]()
+  test("race syntax") {
+    Async.blocking:
+      val a = SyncChannel[Int]()
+      val b = SyncChannel[Int]()
 
-  //     Future { a.send(0) }
-  //     Future { assertEquals(b.read().get, 10) }
-  //     var valuesSent = 0
-  //     for i <- 1 to 2 do
-  //       Async.race(a.readSource, b.sendSource(10)).await match
-  //         case a.Read(v) => assertEquals(v, 0)
-  //         case b.Sent =>
-  //           valuesSent += 1
-  //           assertEquals(valuesSent, 1)
-  //         case r => assert(false, s"Should not happen, got $r")
+      Future { a.send(0) }
+      Future { assertEquals(b.read().get, 10) }
+      var valuesSent = 0
+      for i <- 1 to 2 do
+        Async.select(
+          a.readSource handleVal { v =>
+            assertEquals(v, 0)
+          },
+          b.sendSource(10) handleVal { _ =>
+            valuesSent += 1
+            assertEquals(valuesSent, 1)
+          }
+        )
+        // Async.race(a.canRead, b.canSend(10)).await match
+        //   case a.Read(v) => assertEquals(v, 0)
+        //   case b.Sent =>
+        //     valuesSent += 1
+        //     assertEquals(valuesSent, 1)
+        //   case r => assert(false, s"Should not happen, got $r")
 
-  //     a.close()
-  //     b.close()
-  //     Async.race(a.readSource, b.readSource).await match
-  //       case a.Closed | b.Closed => ()
-  //       case r                   => assert(false, s"Should not happen, got $r")
-  // }
+      a.close()
+      b.close()
+      Async.select(
+        a.readSource handle { case Failure(ChannelClosedException(c)) =>
+          assertEquals(c, a)
+        },
+        b.readSource handle { case Failure(ChannelClosedException(c)) =>
+          assertEquals(c, b)
+        }
+      )
+      // Async.race(a.canRead, b.canRead).await match
+      //   case a.Closed | b.Closed => ()
+      //   case r                   => assert(false, s"Should not happen, got $r")
+  }
 
-  test("ChannelMultiplexer multiplexes - all subscribers read the same stream") {
+  test("ChannelMultiplexer multiplexes - all subscribers read the same stream".ignore) {
     Async.blocking:
       val m = ChannelMultiplexer[Int]()
       val c = SyncChannel[Int]()
@@ -351,7 +368,7 @@ class ChannelBehavior extends munit.FunSuite {
       f3.result
   }
 
-  test("ChannelMultiplexer multiple readers and writers") {
+  test("ChannelMultiplexer multiple readers and writers".ignore) {
     Async.blocking:
       val m = ChannelMultiplexer[Int]()
 

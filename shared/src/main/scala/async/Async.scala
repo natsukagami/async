@@ -1,6 +1,7 @@
 package gears.async
 import java.util.concurrent.atomic.AtomicBoolean
 import scala.collection.mutable
+import scala.collection.immutable.HashMap
 import java.util.concurrent.locks.ReentrantLock
 import java.util.concurrent.atomic.AtomicLong
 import gears.async.Listener.{withLock, ListenerLockWrapper}
@@ -170,7 +171,7 @@ object Async:
       }
     )
 
-    private def mapTry[U](f: Try[T] => Try[U]) =
+    def mapTry[U](f: Try[T] => Try[U]) =
       new Source[U]:
         selfSrc =>
         def transform(k: Listener[U]) =
@@ -246,6 +247,23 @@ object Async:
 
     }
   end race
+
+  opaque type SelectCase[T] = (Source[?], Try[Nothing] => T)
+  extension [T](src: Source[T]) inline def handle[U](f: Try[T] => U): SelectCase[U] = (src, f)
+  extension [T](src: Source[T])
+    inline def handleVal[U](f: T => U): SelectCase[U] = (
+      src,
+      (v: Try[T]) =>
+        v.match {
+          case Success(v)   => f(v)
+          case Failure(exc) => throw exc
+        }
+    )
+
+  def select[T](cases: SelectCase[T]*)(using Async) =
+    val srcs = cases.map(c => c._1.mapTry(Success(_, c._2)))
+    val (input, handle) = Async.await(race(srcs*)).get
+    handle.asInstanceOf[input.type => T](input)
 
   /** If left (respectively, right) source succeeds with `x`, pass `Left(x)`, (respectively, Right(x)) on to the
     * continuation.
