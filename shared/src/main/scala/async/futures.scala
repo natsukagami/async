@@ -16,7 +16,7 @@ import java.util.concurrent.atomic.AtomicLong
 
 /** A cancellable future that can suspend waiting for other asynchronous sources
   */
-trait Future[+T] extends Async.OriginalSource[Try[T]], Cancellable:
+trait Future[+T] extends Async.OriginalSource[T], Cancellable:
 
   /** Wait for this future to be completed and return its result */
   def result(using async: Async): Try[T]
@@ -42,21 +42,21 @@ object Future:
     @volatile protected var hasCompleted: Boolean = false
     protected var cancelRequest = false
     private var result: Try[T] = uninitialized // guaranteed to be set if hasCompleted = true
-    private val waiting: mutable.Set[Listener[Try[T]]] = mutable.Set()
+    private val waiting: mutable.Set[Listener[T]] = mutable.Set()
 
     // Async.Source method implementations
 
-    def poll(k: Listener[Try[T]]): Boolean =
+    def poll(k: Listener[T]): Boolean =
       if hasCompleted then
         k.completeNow(result, this)
         true
       else false
 
-    def addListener(k: Listener[Try[T]]): Unit = synchronized:
+    def addListener(k: Listener[T]): Unit = synchronized:
       if hasCompleted then k.completeNow(result, this)
       else waiting += k
 
-    def dropListener(k: Listener[Try[T]]): Unit = synchronized:
+    def dropListener(k: Listener[T]): Unit = synchronized:
       waiting -= k
 
     // Cancellable method implementations
@@ -105,7 +105,7 @@ object Future:
 
       /** Await a source first by polling it, and, if that fails, by suspending in a onComplete call.
         */
-      override def await[U](src: Async.Source[U]): U =
+      override def await[U](src: Async.Source[U]): Try[U] =
         class CancelSuspension extends Cancellable:
           var suspension: ac.support.Suspension[Try[U], Unit] = uninitialized
           var listener: Listener[U] = uninitialized
@@ -131,14 +131,14 @@ object Future:
             val res = ac.support.suspend[Try[U], Unit](k =>
               val listener = Listener.acceptingListener[U]: (x, _) =>
                 val completedBefore = cancellable.complete()
-                if !completedBefore then ac.support.resumeAsync(k)(Success(x))
+                if !completedBefore then ac.support.resumeAsync(k)(x)
               cancellable.suspension = k
               cancellable.listener = listener
               cancellable.link(group) // may resume + remove listener immediately
               src.onComplete(listener)
             )
             cancellable.unlink()
-            res.get
+            res
 
       override def withGroup(group: CompletionGroup) = FutureAsync(group)
 
@@ -178,26 +178,22 @@ object Future:
       * fail with the failure that was returned first.
       */
     def zip[U](f2: Future[U])(using Async): Future[(T, U)] = Future:
-      Async.await(Async.either(f1, f2)) match
-        case Left(Success(x1))  => (x1, f2.value)
-        case Right(Success(x2)) => (f1.value, x2)
-        case Left(Failure(ex))  => throw ex
-        case Right(Failure(ex)) => throw ex
+      Async.await(Async.either(f1, f2)).get match
+        case Left(x1)  => (x1, f2.value)
+        case Right(x2) => (f1.value, x2)
 
     /** Parallel composition of tuples of futures. Future.Success(EmptyTuple) might be treated as Nil.
       */
     def *:[U <: Tuple](f2: Future[U])(using Async): Future[T *: U] = Future:
-      Async.await(Async.either(f1, f2)) match
-        case Left(Success(x1))  => x1 *: f2.value
-        case Right(Success(x2)) => f1.value *: x2
-        case Left(Failure(ex))  => throw ex
-        case Right(Failure(ex)) => throw ex
+      Async.await(Async.either(f1, f2)).get match
+        case Left(x1)  => x1 *: f2.value
+        case Right(x2) => f1.value *: x2
 
     /** Alternative parallel composition of this task with `other` task. If either task succeeds, succeed with the
       * success that was returned first. Otherwise, fail with the failure that was returned last.
       */
     def alt(f2: Future[T])(using Async): Future[T] = Future:
-      Async.await(Async.either(f1, f2)) match
+      Async.await(Async.either(f1.foldLeft(Success(_))(Failure(_)), f2.foldLeft(Success(_))(Failure(_)))).get match
         case Left(Success(x1))    => x1
         case Right(Success(x2))   => x2
         case Left(_: Failure[?])  => f2.value
@@ -207,7 +203,7 @@ object Future:
       * returned first and the other is cancelled. Otherwise, fail with the failure that was returned last.
       */
     def altWithCancel(f2: Future[T])(using Async): Future[T] = Future:
-      Async.await(Async.either(f1, f2)) match
+      Async.await(Async.either(f1.foldLeft(Success(_))(Failure(_)), f2.foldLeft(Success(_))(Failure(_)))).get match
         case Left(Success(x1)) =>
           f2.cancel()
           x1

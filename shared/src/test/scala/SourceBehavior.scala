@@ -115,7 +115,7 @@ class SourceBehavior extends munit.FunSuite {
         sleep(100)
         1
       }
-      val l: Listener[Try[Int]] = Listener.acceptingListener { (_, _) => aRan = true }
+      val l: Listener[Int] = Listener.acceptingListener { (_, _) => aRan = true }
       f.onComplete(l)
       f.onComplete(Listener.acceptingListener { (_, _) => bRan = true })
       assertEquals(aRan, false)
@@ -130,9 +130,9 @@ class SourceBehavior extends munit.FunSuite {
   test("map") {
     Async.blocking:
       val f: Future[Int] = Future { 10 }
-      assertEquals(Async.await(f.map({ case Success(i) => i + 1 })), 11)
+      assertEquals(Async.await(f.map({ _ + 1 })).get, 11)
       val g: Future[Int] = Future.now(Failure(AssertionError(1123)))
-      assertEquals(Async.await(g.map({ case Failure(_) => 17 })), 17)
+      assertEquals(Async.await(g.foldLeft(identity)(_ => 17)).get, 17)
   }
 
   test("all listeners in chain fire") {
@@ -159,7 +159,7 @@ class SourceBehavior extends munit.FunSuite {
       val f1 = Future { sleep(300); touched = true; 10 }
       val f2 = Future { sleep(50); 40 }
       val g = Async.await(either(f1, f2))
-      assertEquals(g, Right(Success(40)))
+      assertEquals(g.get, Right(40))
       sleep(350)
       assertEquals(touched, true)
   }
@@ -167,12 +167,12 @@ class SourceBehavior extends munit.FunSuite {
   test("source values") {
     Async.blocking:
       val src = Async.Source.values(1, 2)
-      assertEquals(src.await, 1)
-      assertEquals(src.await, 2)
+      assertEquals(src.await.get, 1)
+      assertEquals(src.await.get, 2)
 
     Async.blocking:
       val src = Async.Source.values(1)
-      assertEquals(src.await, 1)
+      assertEquals(src.await.get, 1)
       assertEquals(
         Async
           .race(

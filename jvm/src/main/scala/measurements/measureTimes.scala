@@ -243,7 +243,7 @@ def measureIterations[T](action: () => T): Int =
   Async.blocking:
     val m = ChannelMultiplexer[Long]()
     val c = SyncChannel[Long]()
-    val cr = SyncChannel[Try[Long]]()
+    val cr = SyncChannel[Long]()
     m.addPublisher(c)
     m.addSubscriber(cr)
     Thread.sleep(50)
@@ -275,7 +275,7 @@ def measureIterations[T](action: () => T): Int =
   Async.blocking:
     val m = ChannelMultiplexer[Long]()
     val c = BufferedChannel[Long](1)
-    val cr = BufferedChannel[Try[Long]](1)
+    val cr = BufferedChannel[Long](1)
     m.addPublisher(c)
     m.addSubscriber(cr)
     Thread.sleep(50)

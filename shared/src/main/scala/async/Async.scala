@@ -6,12 +6,13 @@ import java.util.concurrent.atomic.AtomicLong
 import gears.async.Listener.{withLock, ListenerLockWrapper}
 import gears.async.Listener.NumberedLock
 import scala.util.boundary
+import scala.util.{Try, Failure, Success}
 
 /** A context that allows to suspend waiting for asynchronous data sources
   */
 trait Async(using val support: AsyncSupport, val scheduler: support.Scheduler):
   /** Wait for completion of async source `src` and return the result */
-  def await[T](src: Async.Source[T]): T
+  def await[T](src: Async.Source[T]): Try[T]
 
   /** The cancellation group for this Async */
   def group: CompletionGroup
@@ -27,22 +28,22 @@ object Async:
     private val condVar = lock.newCondition()
 
     /** Wait for completion of async source `src` and return the result */
-    override def await[T](src: Async.Source[T]): T =
+    override def await[T](src: Async.Source[T]): Try[T] =
       src
         .poll()
         .getOrElse:
-          var result: Option[T] = None
+          var result: Try[T] = null
           src onComplete Listener.acceptingListener: (t, _) =>
             lock.lock()
             try
-              result = Some(t)
+              result = t
               condVar.signalAll()
             finally lock.unlock()
 
           lock.lock()
           try
-            while result.isEmpty do condVar.await()
-            result.get
+            while result == null do condVar.await()
+            result
           finally lock.unlock()
 
     /** An Async of the same kind as this one, with a new cancellation group */
@@ -58,7 +59,7 @@ object Async:
   inline def current(using async: Async): Async = async
 
   /** Await source result in currently executing Async context */
-  inline def await[T](src: Source[T])(using async: Async): T = async.await(src)
+  inline def await[T](src: Source[T])(using async: Async): Try[T] = async.await(src)
 
   def group[T](body: Async ?=> T)(using async: Async): T =
     withNewCompletionGroup(CompletionGroup(async.group.handleCompletion).link())(body)
@@ -108,8 +109,8 @@ object Async:
     def dropListener(k: Listener[T]): Unit
 
     /** Utility method for direct polling. */
-    def poll(): Option[T] =
-      var resultOpt: Option[T] = None
+    def poll(): Option[Try[T]] =
+      var resultOpt: Option[Try[T]] = None
       poll(Listener.acceptingListener { (x, _) => resultOpt = Some(x) })
       resultOpt
 
@@ -158,13 +159,24 @@ object Async:
 
   extension [T](src: Source[T])
     /** Pass on data transformed by `f` */
-    def map[U](f: T => U) =
+    def map[U](f: T => U) = src.mapTry(_.map(f))
+
+    /** Handle both cases of [[Try]]. */
+    def foldLeft[U](f: T => U)(g: Throwable => U) = src.mapTry(v =>
+      Try {
+        v.match
+          case Failure(exception) => g(exception)
+          case Success(value)     => f(value)
+      }
+    )
+
+    private def mapTry[U](f: Try[T] => Try[U]) =
       new Source[U]:
         selfSrc =>
         def transform(k: Listener[U]) =
           new Listener[T]:
             val lock = withLock(k) { inner => new ListenerLockWrapper(inner, selfSrc) }
-            def complete(data: T, source: Async.Source[T]) =
+            def complete(data: Try[T], source: Async.Source[T]) =
               k.complete(f(data), selfSrc)
 
         def poll(k: Listener[U]): Boolean =
@@ -219,7 +231,7 @@ object Async:
             self.releaseLock()
             if until == heldLock then null else k.lock
 
-          def complete(item: T, src: Async.Source[T]) =
+          def complete(item: Try[T], src: Async.Source[T]) =
             found = true
             self.releaseLock()
             sources.foreach(s => if s != src then s.dropListener(self))
