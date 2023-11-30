@@ -1,4 +1,4 @@
-import gears.async.{Async, BufferedChannel, ChannelClosedException, ChannelMultiplexer, Future, SyncChannel, Task, TaskSchedule, alt, altC, given}
+import gears.async.{Async, BufferedChannel, ChannelClosedException, ChannelMultiplexer, Future, SyncChannel, Task, TaskSchedule, UnboundedChannel, alt, altC, given}
 import gears.async.default.given
 import gears.async.AsyncOperations.*
 import gears.async.BaseChannel
@@ -11,6 +11,8 @@ import scala.util.{Failure, Success, Try}
 import scala.util.Random
 import scala.collection.mutable.{ArrayBuffer, Set}
 import java.util.concurrent.atomic.AtomicInteger
+import java.nio.ByteBuffer
+import scala.collection.Stepper.UnboxingFloatStepper
 
 class ChannelBehavior extends munit.FunSuite {
 
@@ -114,9 +116,7 @@ class ChannelBehavior extends munit.FunSuite {
   }
 
   test("values arrive in order") {
-      val c1 = SyncChannel[Int]()
-      val c2 = BufferedChannel[Int]()
-      for (c <- List(c1, c2)) do Async.blocking {
+      for c <- getChannels do Async.blocking {
         val f1 = Future:
           for (i <- 0 to 1000)
             c.send(i)
@@ -153,46 +153,31 @@ class ChannelBehavior extends munit.FunSuite {
 
   test("reading a closed channel returns Failure(ChannelClosedException)") {
     Async.blocking:
-      val c1 = SyncChannel[Int]()
-      val c2 = BufferedChannel[Int]()
-      c1.close()
-      c2.close()
-      c1.read() match {
-        case Failure(_: ChannelClosedException) => ()
-        case _ => assert(false)
-      }
-      c2.read() match {
-        case Failure(_: ChannelClosedException) => ()
-        case _ => assert(false)
-      }
+      val channels = getChannels
+      channels.foreach(_.close())
+      for c <- channels do
+        c.read() match {
+          case Failure(_: ChannelClosedException) => ()
+          case _ => assert(false)
+        }
   }
 
   test("writing to a closed channel throws ChannelClosedException") {
     Async.blocking:
-      val c1 = SyncChannel[Int]()
-      val c2 = BufferedChannel[Int]()
-      c1.close()
-      c2.close()
-      var thrown1 = false
-      var thrown2 = true
-      try {
-        c1.send(1)
-      } catch {
-        case _: ChannelClosedException => thrown1 = true
-      }
-      try {
-        c2.send(1)
-      } catch {
-        case _: ChannelClosedException => thrown2 = true
-      }
-      assertEquals(thrown1, true)
-      assertEquals(thrown2, true)
+      val channels = getChannels
+      channels.foreach(_.close())
+      for c <- channels do
+        var thrown = false
+        try {
+          c.send(1)
+        } catch {
+          case _: ChannelClosedException => thrown = true
+        }
+        assertEquals(thrown, true)
   }
 
   test("send a lot of values via a channel and check their sum") {
-    val c1 = SyncChannel[Int]()
-    val c2 = BufferedChannel[Int](1024)
-    for (c <- List(c1, c2)) {
+    for (c <- getChannels) {
       var sum = 0L
       Async.blocking:
         val f1 = Future:
@@ -209,9 +194,7 @@ class ChannelBehavior extends munit.FunSuite {
   }
 
   test("multiple writers, multiple readers") {
-    val c1 = BufferedChannel[Int](713)
-    val c2 = SyncChannel[Int]()
-    for (c <- List(c1, c2)) {
+    for (c <- getChannels) {
       Async.blocking:
         val f11 = Future:
           for (i <- 1 to 10000)
@@ -265,6 +248,21 @@ class ChannelBehavior extends munit.FunSuite {
       for i <- 0 until 1000 do
         sum += Async.await(race)
       assertEquals(sum, (0 until 1000).sum)
+  }
+
+  test("unbounded channels with sync sending") {
+    val ch = UnboundedChannel[Int]()
+    for i <- 0 to 10 do ch.sendImmediately(i)
+    Async.blocking:
+      for i <- 0 to 10 do
+        assertEquals(ch.read().get, i)
+    ch.close()
+    try {
+      ch.sendImmediately(0)
+      assert(false)
+    } catch {
+      case _: ChannelClosedException => ()
+    }
   }
 
   test("race sends") {
@@ -393,4 +391,6 @@ class ChannelBehavior extends munit.FunSuite {
       f12.result
       f13.result
   }
+
+  def getChannels = List(SyncChannel[Int](), BufferedChannel[Int](1024), UnboundedChannel[Int]())
 }
