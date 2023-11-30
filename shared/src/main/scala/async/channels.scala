@@ -16,61 +16,65 @@ trait BaseChannel[T]:
   sealed trait Result:
     def mustSent: Unit = this match
       case Sent => ()
-      case _ => throw channelClosedException
+      case _    => throw channelClosedException
     def get: Try[T] = this match
       case Read(item) => Success(item)
-      case _ => Failure(channelClosedException)
+      case _          => Failure(channelClosedException)
     def mustRead: T = this match
       case Read(item) => item
-      case _ => throw channelClosedException
+      case _          => throw channelClosedException
 
   /** [[item]] was read from the channel. */
   case class Read(item: T) extends Result
+
   /** A value was sent to the channel. */
   case object Sent extends Result
+
   /** The channel was closed. */
   case object Closed extends Result
 
   /** Possible outcomes of a send operation. */
   type SendResult = Sent.type | Closed.type
+
   /** Possible outcomes of a read operation. */
   type ReadResult = Read | Closed.type
 
 /** The part of a channel one can send values to. Blocking behavior depends on the implementation.
- */
+  */
 trait SendableChannel[T] extends BaseChannel[T]:
-  /** Create an [[Async.Source]] representing the send action of value [[x]].
-    * Note that *each* listener attached to and accepting a [[Sent]] value corresponds to [[x]] being sent once.
+  /** Create an [[Async.Source]] representing the send action of value [[x]]. Note that *each* listener attached to and
+    * accepting a [[Sent]] value corresponds to [[x]] being sent once.
     *
-    * To create an [[Async.Source]] that sends the item exactly once regardless of listeners attached, wrap the
-    * [[send]] operation inside a [[gears.async.Future]].
+    * To create an [[Async.Source]] that sends the item exactly once regardless of listeners attached, wrap the [[send]]
+    * operation inside a [[gears.async.Future]].
     */
   def sendSource(x: T): Async.Source[SendResult]
-  /** Send [[x]] over the channel, blocking (asynchronously with [[Async]]) until the item has been sent
-    * or, if the channel is buffered, queued.
-    * Throws [[ChannelClosedException]] if the channel was closed.
+
+  /** Send [[x]] over the channel, blocking (asynchronously with [[Async]]) until the item has been sent or, if the
+    * channel is buffered, queued. Throws [[ChannelClosedException]] if the channel was closed.
     */
   def send(x: T)(using Async): Unit = Async.await(sendSource(x)) match
-    case Sent => ()
+    case Sent   => ()
     case Closed => throw channelClosedException
 end SendableChannel
 
 /** The part of a channel one can read values from. Blocking behavior depends on the implementation.
- */
+  */
 trait ReadableChannel[T] extends BaseChannel[T]:
-  /** An [[Async.Source]] corresponding to items being sent over the channel.
-    * Note that *each* listener attached to and accepting a [[Read]] value corresponds to one value received over the channel.
+  /** An [[Async.Source]] corresponding to items being sent over the channel. Note that *each* listener attached to and
+    * accepting a [[Read]] value corresponds to one value received over the channel.
     *
-    * To create an [[Async.Source]] that reads *exactly one* item regardless of listeners attached, wrap the
-    * [[read]] operation inside a [[gears.async.Future]].
+    * To create an [[Async.Source]] that reads *exactly one* item regardless of listeners attached, wrap the [[read]]
+    * operation inside a [[gears.async.Future]].
     */
   val readSource: Async.Source[ReadResult]
-  /** Read an item from the channel, blocking (asynchronously with [[Async]]) until the item has been received.
-    * Returns `Failure(ChannelClosedException)` if the channel was closed.
+
+  /** Read an item from the channel, blocking (asynchronously with [[Async]]) until the item has been received. Returns
+    * `Failure(ChannelClosedException)` if the channel was closed.
     */
   def read()(using Async): Try[T] = await(readSource) match
     case Read(item) => Success(item)
-    case Closed => Failure(channelClosedException)
+    case Closed     => Failure(channelClosedException)
 end ReadableChannel
 
 /** A generic channel that can be sent to, received from and closed. */
@@ -84,27 +88,27 @@ trait Channel[T] extends SendableChannel[T], ReadableChannel[T], java.io.Closeab
 end Channel
 
 /** SyncChannel, sometimes called a rendez-vous channel has the following semantics:
- *  - `send` to an unclosed channel blocks until a reader commits to receiving the value (via successfully locking).
- */
+  *   - `send` to an unclosed channel blocks until a reader commits to receiving the value (via successfully locking).
+  */
 trait SyncChannel[T] extends Channel[T]
 
 /** BufferedChannel(size: Int) is a version of a channel with an internal value buffer (represented internally as an
- *  array with positive size). It has the following semantics:
- *  - `send` if the buffer is not full appends the value to the buffer and success immediately.
- *  - `send` if the buffer is full blocks until some buffer slot is freed and assigned to this sender.
- */
+  * array with positive size). It has the following semantics:
+  *   - `send` if the buffer is not full appends the value to the buffer and success immediately.
+  *   - `send` if the buffer is full blocks until some buffer slot is freed and assigned to this sender.
+  */
 trait BufferedChannel[T] extends Channel[T]
 
-/** UnboundedChannel are buffered channels that does not bound the number of items in the channel.
-  * In other words, the buffer is treated as never being full and will expand as needed.
+/** UnboundedChannel are buffered channels that does not bound the number of items in the channel. In other words, the
+  * buffer is treated as never being full and will expand as needed.
   */
 trait UnboundedChannel[T] extends BufferedChannel[T]:
   /** Send the item immediately. Throws [[ChannelClosedException]] if the channel is closed. */
   def sendImmediately(x: T): Unit
 
-/** This exception is being raised by [[Channel.send]] on closed [[Channel]], it is also returned wrapped in
-  * `Failure` when reading form a closed channel. [[ChannelMultiplexer]] sends `Failure(ChannelClosedException)` to all
-  *  subscribers when it receives a `close()` signal.
+/** This exception is being raised by [[Channel.send]] on closed [[Channel]], it is also returned wrapped in `Failure`
+  * when reading form a closed channel. [[ChannelMultiplexer]] sends `Failure(ChannelClosedException)` to all
+  * subscribers when it receives a `close()` signal.
   */
 class ChannelClosedException extends Exception
 private val channelClosedException = ChannelClosedException()
@@ -137,15 +141,13 @@ object BufferedChannel:
     // Check space in buf -> fail
     // If we can pop from buf -> try to feed a sender
     override def pollRead(r: Reader): Boolean = synchronized:
-      if checkClosed(readSource, r) then
-        return true
+      if checkClosed(readSource, r) then return true
       if !buf.isEmpty then
         if r.completeNow(Read(buf.head), readSource) then
           buf.dequeue()
           if cells.hasSender then
             val (src, s) = cells.nextSender
-            if senderToBuf(src, s) then
-              cells.dequeue()
+            if senderToBuf(src, s) then cells.dequeue()
         true
       else false
 
@@ -168,8 +170,7 @@ object UnboundedChannel:
     override def sendImmediately(x: T): Unit =
       var result: SendResult = Closed
       pollSend(CanSend(x), acceptingListener((r, _) => result = r))
-      if result == Closed then
-        throw channelClosedException
+      if result == Closed then throw channelClosedException
 
     override def pollRead(r: Reader): Boolean = synchronized:
       if checkClosed(readSource, r) then true
@@ -198,7 +199,7 @@ object Channel:
 
     protected final def checkClosed(src: Async.Source[?], l: Listener[Closed.type]): Boolean =
       if isClosed then
-        l.completeNow(Closed, src.asInstanceOf[Async.Source[Closed.type] @unchecked /* TODO fix later */])
+        l.completeNow(Closed, src.asInstanceOf[Async.Source[Closed.type] @unchecked /* TODO fix later */ ])
         true
       else false
 
@@ -256,14 +257,10 @@ object Channel:
         pending.enqueue((src, s))
         this
       def dropReader(r: Reader): this.type =
-        if reader > 0 then
-          if pending.removeFirst(_ == r).isDefined then
-            reader -= 1
+        if reader > 0 then if pending.removeFirst(_ == r).isDefined then reader -= 1
         this
       def dropSender(item: T, s: Sender): this.type =
-        if sender > 0 then
-          if pending.removeFirst(_ == (item, s)).isDefined then
-            sender -= 1
+        if sender > 0 then if pending.removeFirst(_ == (item, s)).isDefined then sender -= 1
         this
 
       def matchReader(r: Reader): Boolean =
@@ -274,11 +271,9 @@ object Channel:
               Impl.this.complete(canSend, r, sender)
               dequeue()
               return true
-            case listener : (r.type | sender.type) =>
-              if listener == r then
-                return true
-              else
-                dequeue()
+            case listener: (r.type | sender.type) =>
+              if listener == r then return true
+              else dequeue()
         false
 
       def matchSender(src: CanSend, s: Sender): Boolean =
@@ -290,16 +285,13 @@ object Channel:
               dequeue()
               return true
             case listener: (reader.type | s.type) =>
-              if listener == s then
-                return true
-              else
-                dequeue()
+              if listener == s then return true
+              else dequeue()
         false
-
 
       def cancel() =
         pending.foreach {
-          case (src, s) => s.completeNow(Closed, src)
+          case (src, s)  => s.completeNow(Closed, src)
           case r: Reader => r.completeNow(Closed, readSource)
         }
         pending.clear()
@@ -309,18 +301,18 @@ object Channel:
   end Impl
 end Channel
 
-/** Channel multiplexer is an object where one can register publisher and subscriber channels.
- *  Internally a multiplexer has a thread that continuously races the set of publishers and once it reads
- *  a value, it sends a copy to each subscriber.
- *
- *  For an unchanging set of publishers and subscribers and assuming that the multiplexer is the only reader of
- *  the publisher channels, every subscriber will receive the same set of messages, in the same order and it will be
- *  exactly all messages sent by the publishers. The only guarantee on the order of the values the subscribers see is
- *  that values from the same publisher will arrive in order.
- *
- *  Channel multiplexer can also be closed, in that case all subscribers will receive Failure(ChannelClosedException)
- *  but no attempt at closing either publishers or subscribers will be made.
- */
+/** Channel multiplexer is an object where one can register publisher and subscriber channels. Internally a multiplexer
+  * has a thread that continuously races the set of publishers and once it reads a value, it sends a copy to each
+  * subscriber.
+  *
+  * For an unchanging set of publishers and subscribers and assuming that the multiplexer is the only reader of the
+  * publisher channels, every subscriber will receive the same set of messages, in the same order and it will be exactly
+  * all messages sent by the publishers. The only guarantee on the order of the values the subscribers see is that
+  * values from the same publisher will arrive in order.
+  *
+  * Channel multiplexer can also be closed, in that case all subscribers will receive Failure(ChannelClosedException)
+  * but no attempt at closing either publishers or subscribers will be made.
+  */
 trait ChannelMultiplexer[T] extends java.io.Closeable:
   def addPublisher(c: ReadableChannel[T]): Unit
   def removePublisher(c: ReadableChannel[T]): Unit
@@ -329,7 +321,6 @@ trait ChannelMultiplexer[T] extends java.io.Closeable:
 
   def removeSubscriber(c: SendableChannel[Try[T]]): Unit
 end ChannelMultiplexer
-
 
 object ChannelMultiplexer:
   private enum Message:
@@ -340,7 +331,7 @@ object ChannelMultiplexer:
     private val publishers = ArrayBuffer[ReadableChannel[T]]()
     private val subscribers = ArrayBuffer[SendableChannel[Try[T]]]()
     private val infoChannel: BufferedChannel[Message] = BufferedChannel[Message](1)
-    ac.scheduler.execute { () =>
+    ac.scheduler.execute: () =>
       var shouldTerminate = false
       var publishersCopy: List[ReadableChannel[T]] = null
       var subscribersCopy: List[SendableChannel[Try[T]]] = null
@@ -348,28 +339,24 @@ object ChannelMultiplexer:
         ChannelMultiplexer.this.synchronized:
           publishersCopy = publishers.toList
 
-        val got = Async.await(Async.race(infoChannel.readSource, Async.race(publishersCopy.map(c => c.readSource.map(_.get)) *)))
-        got match {
-          case infoChannel.Read(Message.Quit) => {
+        val got =
+          Async.await(Async.race(infoChannel.readSource, Async.race(publishersCopy.map(c => c.readSource.map(_.get))*)))
+        got match
+          case infoChannel.Read(Message.Quit) =>
             ChannelMultiplexer.this.synchronized:
               subscribersCopy = subscribers.toList
-            for (s <- subscribersCopy) s.send(Failure(channelClosedException))
+            for s <- subscribersCopy do s.send(Failure(channelClosedException))
             shouldTerminate = true
-          }
           case infoChannel.Read(Message.Refresh) => ()
-          case infoChannel.Closed => shouldTerminate = true // ?
-          case v: Try[T] => {
+          case infoChannel.Closed                => shouldTerminate = true // ?
+          case v: Try[T] =>
             ChannelMultiplexer.this.synchronized:
               subscribersCopy = subscribers.toList
             var c = 0
-            for (s <- subscribersCopy) {
+            for s <- subscribersCopy do
               c += 1
               s.send(v)
-            }
-          }
-        }
       }
-    }
 
     override def close(): Unit =
       var shouldStop = false
@@ -401,6 +388,6 @@ object ChannelMultiplexer:
       ChannelMultiplexer.this.synchronized:
         if (isClosed) throw channelClosedException
         subscribers += c
+  end apply
 
 end ChannelMultiplexer
-

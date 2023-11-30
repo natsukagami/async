@@ -20,7 +20,8 @@ trait NativeSuspend extends SuspendSupport:
   override def boundary[R](body: (Label[R]) ?=> R): R =
     native.boundary(body)
 
-  override def suspend[T, R](body: Suspension[T, R] => R)(using Label[R]): T = native.suspend[T, R](f => body(NativeContinuation(f)))
+  override def suspend[T, R](body: Suspension[T, R] => R)(using Label[R]): T =
+    native.suspend[T, R](f => body(NativeContinuation(f)))
 end NativeSuspend
 
 /** Spawns a single thread that does all the sleeping. */
@@ -57,8 +58,7 @@ class ExecutorWithSleepThread(val exec: ExecutionContext) extends ExecutionConte
       sleepingUntil match
         case None => this.wait()
         case Some(value) =>
-          if value.hasTimeLeft() then
-            this.wait(value.timeLeft.max(10.millis).toMillis)
+          if value.hasTimeLeft() then this.wait(value.timeLeft.max(10.millis).toMillis)
       // Pop sleepers until no more available
       while (sleepers.headOption.map(_.wakeTime.isOverdue()) == Some(true)) {
         val task = sleepers.dequeue()
@@ -72,10 +72,11 @@ class ExecutorWithSleepThread(val exec: ExecutionContext) extends ExecutionConte
   sleeperThread.start()
 }
 
-class SuspendExecutorWithSleep(exec: ExecutionContext) extends ExecutorWithSleepThread(exec)
-  with AsyncSupport
-  with AsyncOperations
-  with NativeSuspend {
+class SuspendExecutorWithSleep(exec: ExecutionContext)
+    extends ExecutorWithSleepThread(exec)
+    with AsyncSupport
+    with AsyncOperations
+    with NativeSuspend {
   type Scheduler = this.type
   override def sleep(millis: Long)(using ac: Async): Unit = {
     val sleepingFut = Promise[Unit]()

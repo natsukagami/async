@@ -21,20 +21,18 @@ trait Future[+T] extends Async.OriginalSource[Try[T]], Cancellable:
   /** Wait for this future to be completed and return its result */
   def result(using async: Async): Try[T]
 
-  /** Wait for this future to be completed, return its value in case of success,
-    * or rethrow exception in case of failure.
+  /** Wait for this future to be completed, return its value in case of success, or rethrow exception in case of
+    * failure.
     */
   def value(using async: Async): T = result.get
 
-  /** Eventually stop computation of this future and fail with a `Cancellation`
-    * exception.
+  /** Eventually stop computation of this future and fail with a `Cancellation` exception.
     */
   def cancel(): Unit
 
 object Future:
 
-  /** A future that is completed explicitly by calling its `complete` method.
-    * There are two public implementations
+  /** A future that is completed explicitly by calling its `complete` method. There are two public implementations
     *
     *   - RunnableFuture: Completion is done by running a block of code
     *   - Promise.future: Completion is done by external request.
@@ -72,13 +70,12 @@ object Future:
       val r = async.await(this)
       if cancelRequest then Failure(new CancellationException()) else r
 
-    /** Complete future with result. If future was cancelled in the meantime,
-      * return a CancellationException failure instead. Note: @uncheckedVariance
-      * is safe here since `complete` is called from only two places:
-      *   - from the initializer of RunnableFuture, where we are sure that `T`
-      *     is exactly the type with which the future was created, and
-      *   - from Promise.complete, where we are sure the type `T` is exactly the
-      *     type with which the future was created since `Promise` is invariant.
+    /** Complete future with result. If future was cancelled in the meantime, return a CancellationException failure
+      * instead. Note: @uncheckedVariance is safe here since `complete` is called from only two places:
+      *   - from the initializer of RunnableFuture, where we are sure that `T` is exactly the type with which the future
+      *     was created, and
+      *   - from Promise.complete, where we are sure the type `T` is exactly the type with which the future was created
+      *     since `Promise` is invariant.
       */
     private[Future] def complete(result: Try[T] @uncheckedVariance): Unit =
       val toNotify = synchronized:
@@ -93,11 +90,9 @@ object Future:
 
   end CoreFuture
 
-  /** A future that is completed by evaluating `body` as a separate asynchronous
-    * operation in the given `scheduler`
+  /** A future that is completed by evaluating `body` as a separate asynchronous operation in the given `scheduler`
     */
-  private class RunnableFuture[+T](body: Async ?=> T)(using ac: Async)
-      extends CoreFuture[T]:
+  private class RunnableFuture[+T](body: Async ?=> T)(using ac: Async) extends CoreFuture[T]:
 
     private var innerGroup: CompletionGroup = CompletionGroup()
 
@@ -108,8 +103,7 @@ object Future:
         label: ac.support.Label[Unit]
     ) extends Async(using ac.support, ac.scheduler):
 
-      /** Await a source first by polling it, and, if that fails, by suspending
-        * in a onComplete call.
+      /** Await a source first by polling it, and, if that fails, by suspending in a onComplete call.
         */
       override def await[U](src: Async.Source[U]): U =
         class CancelSuspension extends Cancellable:
@@ -128,23 +122,23 @@ object Future:
               src.dropListener(listener)
               ac.support.resumeAsync(suspension)(Failure(new CancellationException()))
 
-        if group.isCancelled then
-          throw new CancellationException()
+        if group.isCancelled then throw new CancellationException()
 
-        src.poll().getOrElse:
-          val cancellable = CancelSuspension()
-          val res = ac.support.suspend[Try[U], Unit](k =>
-            val listener = Listener.acceptingListener[U]: (x, _) =>
-              val completedBefore = cancellable.complete()
-              if !completedBefore then
-                ac.support.resumeAsync(k)(Success(x))
-            cancellable.suspension = k
-            cancellable.listener = listener
-            cancellable.link(group) // may resume + remove listener immediately
-            src.onComplete(listener)
-          )
-          cancellable.unlink()
-          res.get
+        src
+          .poll()
+          .getOrElse:
+            val cancellable = CancelSuspension()
+            val res = ac.support.suspend[Try[U], Unit](k =>
+              val listener = Listener.acceptingListener[U]: (x, _) =>
+                val completedBefore = cancellable.complete()
+                if !completedBefore then ac.support.resumeAsync(k)(Success(x))
+              cancellable.suspension = k
+              cancellable.listener = listener
+              cancellable.link(group) // may resume + remove listener immediately
+              src.onComplete(listener)
+            )
+            cancellable.unlink()
+            res.get
 
       override def withGroup(group: CompletionGroup) = FutureAsync(group)
 
@@ -158,18 +152,16 @@ object Future:
         val r = body
         checkCancellation()
         r
-      }).recoverWith {
-        case _: InterruptedException | _: CancellationException =>
-          Failure(new CancellationException())
+      }).recoverWith { case _: InterruptedException | _: CancellationException =>
+        Failure(new CancellationException())
       }))(using FutureAsync(CompletionGroup.Unlinked))
       signalCompletion()(using ac)
 
   end RunnableFuture
 
-  /** Create a future that asynchronously executes `body` that defines its
-    * result value in a Try or returns failure if an exception was thrown. If
-    * the future is created in an Async context, it is added to the children of
-    * that context's root.
+  /** Create a future that asynchronously executes `body` that defines its result value in a Try or returns failure if
+    * an exception was thrown. If the future is created in an Async context, it is added to the children of that
+    * context's root.
     */
   def apply[T](body: Async ?=> T)(using Async): Future[T] =
     RunnableFuture(body)
@@ -182,9 +174,8 @@ object Future:
 
   extension [T](f1: Future[T])
 
-    /** Parallel composition of two futures. If both futures succeed, succeed
-      * with their values in a pair. Otherwise, fail with the failure that was
-      * returned first.
+    /** Parallel composition of two futures. If both futures succeed, succeed with their values in a pair. Otherwise,
+      * fail with the failure that was returned first.
       */
     def zip[U](f2: Future[U])(using Async): Future[(T, U)] = Future:
       Async.await(Async.either(f1, f2)) match
@@ -193,8 +184,7 @@ object Future:
         case Left(Failure(ex))  => throw ex
         case Right(Failure(ex)) => throw ex
 
-    /** Parallel composition of tuples of futures. Future.Success(EmptyTuple)
-      * might be treated as Nil.
+    /** Parallel composition of tuples of futures. Future.Success(EmptyTuple) might be treated as Nil.
       */
     def *:[U <: Tuple](f2: Future[U])(using Async): Future[T *: U] = Future:
       Async.await(Async.either(f1, f2)) match
@@ -203,9 +193,8 @@ object Future:
         case Left(Failure(ex))  => throw ex
         case Right(Failure(ex)) => throw ex
 
-    /** Alternative parallel composition of this task with `other` task. If
-      * either task succeeds, succeed with the success that was returned first.
-      * Otherwise, fail with the failure that was returned last.
+    /** Alternative parallel composition of this task with `other` task. If either task succeeds, succeed with the
+      * success that was returned first. Otherwise, fail with the failure that was returned last.
       */
     def alt(f2: Future[T])(using Async): Future[T] = Future:
       Async.await(Async.either(f1, f2)) match
@@ -214,9 +203,8 @@ object Future:
         case Left(_: Failure[?])  => f2.value
         case Right(_: Failure[?]) => f1.value
 
-    /** Like `alt` but the slower future is cancelled. If either task succeeds,
-      * succeed with the success that was returned first and the other is
-      * cancelled. Otherwise, fail with the failure that was returned last.
+    /** Like `alt` but the slower future is cancelled. If either task succeeds, succeed with the success that was
+      * returned first and the other is cancelled. Otherwise, fail with the failure that was returned last.
       */
     def altWithCancel(f2: Future[T])(using Async): Future[T] = Future:
       Async.await(Async.either(f1, f2)) match
@@ -231,8 +219,7 @@ object Future:
 
   end extension
 
-  /** A promise defines a future that is be completed via the promise's
-    * `complete` method.
+  /** A promise defines a future that is be completed via the promise's `complete` method.
     */
   class Promise[T]:
     private val myFuture = CoreFuture[T]()
@@ -240,8 +227,8 @@ object Future:
     /** The future defined by this promise */
     val future: Future[T] = myFuture
 
-    /** Define the result value of `future`. However, if `future` was cancelled
-      * in the meantime complete with a `CancellationException` failure instead.
+    /** Define the result value of `future`. However, if `future` was cancelled in the meantime complete with a
+      * `CancellationException` failure instead.
       */
     def complete(result: Try[T]): Unit = myFuture.complete(result)
 
@@ -250,12 +237,14 @@ object Future:
   /** Collects a list of futures into a channel of futures, arriving as they finish. */
   class Collector[T](futures: Future[T]*):
     private val ch = UnboundedChannel[Future[T]]()
+
     /** Output channels of all finished futures. */
     final def results = ch.asReadable
 
-    private val listener = Listener ((_, fut) =>
+    private val listener = Listener((_, fut) =>
       // safe, as we only attach this listener to Future[T]
-      ch.sendImmediately(fut.asInstanceOf[Future[T]]))
+      ch.sendImmediately(fut.asInstanceOf[Future[T]])
+    )
 
     protected final def addFuture(future: Future[T]) = future.onComplete(listener)
 
@@ -268,7 +257,7 @@ object Future:
     def add(future: Future[T]) = addFuture(future)
     inline def +=(future: Future[T]) = add(future)
 
-  extension[T] (fs: Seq[Future[T]])
+  extension [T](fs: Seq[Future[T]])
     /** `.await` for all futures in the sequence, returns the results in a sequence, or throws if any futures fail. */
     def awaitAll(using Async) =
       val collector = Collector(fs*)
@@ -286,7 +275,8 @@ object Future:
           fs.foreach(_.cancel())
           throw e
 
-    /** Race all futures, returning the first successful value. Throws the last exception received, if everything fails. */
+    /** Race all futures, returning the first successful value. Throws the last exception received, if everything fails.
+      */
     def altAll(using Async): T = altImpl(false)
 
     /** Like [[altAll]], but cancels all other futures as soon as the first future succeeds. */
@@ -294,7 +284,8 @@ object Future:
 
     private inline def altImpl(withCancel: Boolean)(using Async): T =
       val collector = Collector(fs*)
-      @scala.annotation.tailrec def loop(attempt: Int): T =
+      @scala.annotation.tailrec
+      def loop(attempt: Int): T =
         collector.results.read().get.result match
           case Failure(exception) =>
             if attempt == fs.length then /* everything failed */ throw exception else loop(attempt + 1)
@@ -304,12 +295,10 @@ object Future:
       loop(1)
 end Future
 
-/** TaskSchedule describes the way in which a task should be repeated. Tasks can
-  * be set to run for example every 100 milliseconds or repeated as long as they
-  * fail. `maxRepetitions` describes the maximum amount of repetitions allowed,
-  * after that regardless of TaskSchedule chosen, the task is not repeated
-  * anymore and the last returned value is returned. `maxRepetitions` equal to
-  * zero means that repetitions can go on potentially forever.
+/** TaskSchedule describes the way in which a task should be repeated. Tasks can be set to run for example every 100
+  * milliseconds or repeated as long as they fail. `maxRepetitions` describes the maximum amount of repetitions allowed,
+  * after that regardless of TaskSchedule chosen, the task is not repeated anymore and the last returned value is
+  * returned. `maxRepetitions` equal to zero means that repetitions can go on potentially forever.
   */
 enum TaskSchedule:
   case Every(val millis: Long, val maxRepetitions: Long = 0)
@@ -322,9 +311,8 @@ enum TaskSchedule:
   case RepeatUntilFailure(val millis: Long = 0, val maxRepetitions: Long = 0)
   case RepeatUntilSuccess(val millis: Long = 0, val maxRepetitions: Long = 0)
 
-/** A task is a template that can be turned into a runnable future Composing
-  * tasks can be referentially transparent. Tasks can be also ran on a specified
-  * schedule.
+/** A task is a template that can be turned into a runnable future Composing tasks can be referentially transparent.
+  * Tasks can be also ran on a specified schedule.
   */
 class Task[+T](val body: (Async, AsyncOperations) ?=> T):
 
@@ -415,8 +403,7 @@ class Task[+T](val body: (Async, AsyncOperations) ?=> T):
             val ret: T = body
             ret match {
               case Failure(_) => ret
-              case _
-                  if (repetitions + 1) == maxRepetitions && maxRepetitions != 0 =>
+              case _ if (repetitions + 1) == maxRepetitions && maxRepetitions != 0 =>
                 ret
               case _ => helper(repetitions + 2)
             }
@@ -433,8 +420,7 @@ class Task[+T](val body: (Async, AsyncOperations) ?=> T):
             val ret: T = body
             ret match {
               case Success(_) => ret
-              case _
-                  if (repetitions + 1) == maxRepetitions && maxRepetitions != 0 =>
+              case _ if (repetitions + 1) == maxRepetitions && maxRepetitions != 0 =>
                 ret
               case _ => helper(repetitions + 2)
             }
@@ -447,14 +433,13 @@ end Task
 private def altAndAltCImplementation[T](shouldCancel: Boolean, futures: Future[T]*)(using Async): Future[T] = Future[T]:
   val fs: Seq[Future[(Try[T], Int)]] = futures.zipWithIndex.map({ (f, i) =>
     Future:
-      try
-        (Success(f.value), i)
+      try (Success(f.value), i)
       catch case e => (Failure(e), i)
   })
 
   @tailrec
   def helper(failed: Int, fs: Seq[(Future[(Try[T], Int)], Int)]): Try[T] =
-    Async.await(Async.race( fs.map(_._1)* )) match
+    Async.await(Async.race(fs.map(_._1)*)) match
       case Success((Success(x), i)) =>
         if (shouldCancel) {
           for ((f, j) <- futures.zipWithIndex) {
@@ -471,27 +456,26 @@ private def altAndAltCImplementation[T](shouldCancel: Boolean, futures: Future[T
 
   helper(0, fs.zipWithIndex).get
 
-/** `alt` defined for multiple futures, not only two.
- * If either task succeeds, succeed with the success that was returned first.
- * Otherwise, fail with the failure that was returned last.
- */
+/** `alt` defined for multiple futures, not only two. If either task succeeds, succeed with the success that was
+  * returned first. Otherwise, fail with the failure that was returned last.
+  */
 def alt[T](futures: Future[T]*)(using Async): Future[T] =
   altAndAltCImplementation(false, futures*)
 
-/** `altC` defined for multiple futures, not only two.
- * If either task succeeds, succeed with the success that was returned first and cancel all other tasks.
- * Otherwise, fail with the failure that was returned last.
- */
+/** `altC` defined for multiple futures, not only two. If either task succeeds, succeed with the success that was
+  * returned first and cancel all other tasks. Otherwise, fail with the failure that was returned last.
+  */
 def altC[T](futures: Future[T]*)(using Async): Future[T] =
   altAndAltCImplementation(true, futures*)
 
 def uninterruptible[T](body: Async ?=> T)(using ac: Async): T =
   val tracker = Cancellable.Tracking().link()
 
-  val r = try
-    val group = CompletionGroup()
-    Async.withNewCompletionGroup(group)(body)
-  finally tracker.unlink()
+  val r =
+    try
+      val group = CompletionGroup()
+      Async.withNewCompletionGroup(group)(body)
+    finally tracker.unlink()
 
   if tracker.isCancelled then throw new CancellationException()
   r

@@ -12,12 +12,12 @@ import scala.concurrent.duration._
 import scala.annotation.tailrec
 import java.util.concurrent.CancellationException
 
-/** 
- * Timer exposes a steady Async.Source of ticks that happens every `tickDuration` milliseconds.
- * Note that the timer does not start ticking until `start` is called (which is a blocking operation, until the timer is cancelled).
- * 
- * You might want to manually `cancel` the timer, so that it gets garbage collected (before the enclosing `Async` scope ends).
-*/
+/** Timer exposes a steady Async.Source of ticks that happens every `tickDuration` milliseconds. Note that the timer
+  * does not start ticking until `start` is called (which is a blocking operation, until the timer is cancelled).
+  *
+  * You might want to manually `cancel` the timer, so that it gets garbage collected (before the enclosing `Async` scope
+  * ends).
+  */
 class Timer(tickDuration: Duration) extends Cancellable {
   var isCancelled = false
 
@@ -26,10 +26,11 @@ class Timer(tickDuration: Duration) extends Cancellable {
       listeners.foreach(_.completeNow(TimerEvent.Tick, this))
     }
     val listeners = mutable.Set[Listener[TimerEvent]]()
-    override def poll(k: Listener[TimerEvent]): Boolean = 
-      if isCancelled then k.completeNow(TimerEvent.Cancelled, this) else false // subscribing to a timer always takes you to the next tick
+    override def poll(k: Listener[TimerEvent]): Boolean =
+      if isCancelled then k.completeNow(TimerEvent.Cancelled, this)
+      else false // subscribing to a timer always takes you to the next tick
     override def dropListener(k: Listener[TimerEvent]): Unit = listeners -= k
-    override protected def addListener(k: Listener[TimerEvent]): Unit = 
+    override protected def addListener(k: Listener[TimerEvent]): Unit =
       if isCancelled then k.completeNow(TimerEvent.Cancelled, this)
       else
         Timer.this.synchronized:
@@ -50,14 +51,12 @@ class Timer(tickDuration: Duration) extends Cancellable {
       try
         // println(s"Sleeping at ${new java.util.Date()}, ${isCancelled}, ${this}")
         sleep(tickDuration.toMillis)
-      catch
-        case _: CancellationException => cancel()
+      catch case _: CancellationException => cancel()
     if !isCancelled then
       _src.tick()
       loop()
-    
 
-  override def cancel(): Unit = 
+  override def cancel(): Unit =
     synchronized { isCancelled = true }
     src.synchronized {
       _src.listeners.foreach(_.completeNow(TimerEvent.Cancelled, src))
@@ -68,4 +67,3 @@ class Timer(tickDuration: Duration) extends Cancellable {
     case Tick
     case Cancelled
 }
-
