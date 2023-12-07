@@ -3,7 +3,6 @@ import scala.collection.mutable
 import mutable.{ArrayBuffer, ListBuffer}
 
 import scala.util.{Failure, Success, Try}
-import Async.await
 
 import scala.util.control.Breaks.{break, breakable}
 import gears.async.Async.Source
@@ -25,7 +24,7 @@ trait SendableChannel[-T]:
   /** Send [[x]] over the channel, blocking (asynchronously with [[Async]]) until the item has been sent or, if the
     * channel is buffered, queued. Throws [[ChannelClosedException]] if the channel was closed.
     */
-  def send(x: T)(using Async): Unit = Async.await(sendSource(x)).get
+  def send(x: T)(using Async): Unit = sendSource(x).await
 end SendableChannel
 
 /** The part of a channel one can read values from. Blocking behavior depends on the implementation.
@@ -42,7 +41,7 @@ trait ReadableChannel[+T]:
   /** Read an item from the channel, blocking (asynchronously with [[Async]]) until the item has been received. Returns
     * `Failure(ChannelClosedException)` if the channel was closed.
     */
-  def read()(using Async): Try[T] = await(readSource)
+  def read()(using Async): Try[T] = readSource.awaitTry
 end ReadableChannel
 
 /** A channel that is both sendable and closeable. */
@@ -311,7 +310,7 @@ object ChannelMultiplexer:
         ChannelMultiplexer.this.synchronized:
           publishersCopy = publishers.toList
 
-        val got = Async.await(Async.race(infoChannel.readSource, Async.race(publishersCopy.map(_.readSource)*)))
+        val got = Async.race(infoChannel.readSource, Async.race(publishersCopy.map(_.readSource)*)).awaitTry
         got match
           case Success(Message.Quit) => {
             ChannelMultiplexer.this.synchronized:

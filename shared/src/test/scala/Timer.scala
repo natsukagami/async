@@ -13,14 +13,14 @@ class TimerTest extends munit.FunSuite {
       println("start of 1 second")
       val timer = Timer(1.second)
       Future { timer.start() }
-      assertEquals(Async.await(timer.src).get, timer.TimerEvent.Tick)
+      assertEquals(timer.src.await, timer.TimerEvent.Tick)
       println("end of 1 second")
   }
 
   def timeoutCancellableFuture[T](d: Duration, f: Future[T])(using Async, AsyncOperations): Future[T] =
     val t = Future { sleep(d.toMillis) }
     Future:
-      val g = Async.await(Async.either(t, f)).get
+      val g = Async.either(t, f).await
       g match
         case Left(_) =>
           f.cancel()
@@ -38,7 +38,7 @@ class TimerTest extends munit.FunSuite {
           sleep(1000)
           touched = true
       )
-      Async.await(t)
+      t.await
       assert(!touched)
       sleep(2000)
       assert(!touched)

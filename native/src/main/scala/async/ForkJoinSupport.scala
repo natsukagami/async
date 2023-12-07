@@ -86,7 +86,7 @@ class SuspendExecutorWithSleep(exec: ExecutionContext)
       sleepingFut.complete(scala.util.Failure(CancellationException()))
       innerCancellable.cancel()
     ):
-      sleepingFut.future.value
+      sleepingFut.future.await
   }
 }
 

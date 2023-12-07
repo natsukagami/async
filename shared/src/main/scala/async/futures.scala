@@ -13,22 +13,11 @@ import java.util.concurrent.CancellationException
 import scala.annotation.tailrec
 import scala.util
 import java.util.concurrent.atomic.AtomicLong
+import gears.async.Async.race
 
 /** A cancellable future that can suspend waiting for other asynchronous sources
   */
-trait Future[+T] extends Async.OriginalSource[T], Cancellable:
-
-  /** Wait for this future to be completed and return its result */
-  def result(using async: Async): Try[T]
-
-  /** Wait for this future to be completed, return its value in case of success, or rethrow exception in case of
-    * failure.
-    */
-  def value(using async: Async): T = result.get
-
-  /** Eventually stop computation of this future and fail with a `Cancellation` exception.
-    */
-  def cancel(): Unit
+trait Future[+T] extends Async.OriginalSource[T], Cancellable
 
 object Future:
 
@@ -66,8 +55,8 @@ object Future:
 
     // Future method implementations
 
-    def result(using async: Async): Try[T] =
-      val r = async.await(this)
+    override def awaitTry(using async: Async): Try[T] =
+      val r = async.awaitTry(this)
       if cancelRequest then Failure(new CancellationException()) else r
 
     /** Complete future with result. If future was cancelled in the meantime, return a CancellationException failure
@@ -105,7 +94,7 @@ object Future:
 
       /** Await a source first by polling it, and, if that fails, by suspending in a onComplete call.
         */
-      override def await[U](src: Async.Source[U]): Try[U] =
+      override def awaitTry[U](src: Async.Source[U]): Try[U] =
         class CancelSuspension extends Cancellable:
           var suspension: ac.support.Suspension[Try[U], Unit] = uninitialized
           var listener: Listener[U] = uninitialized
@@ -257,15 +246,15 @@ object Future:
     /** `.await` for all futures in the sequence, returns the results in a sequence, or throws if any futures fail. */
     def awaitAll(using Async) =
       val collector = Collector(fs*)
-      for _ <- fs do collector.results.read().get.value
-      fs.map(_.value)
+      for _ <- fs do collector.results.read().get.await
+      fs.map(_.await)
 
     /** Like [[awaitAll]], but cancels all futures as soon as one of them fails. */
     def awaitAllOrCancel(using Async) =
       val collector = Collector(fs*)
       try
-        for _ <- fs do collector.results.read().get.value
-        fs.map(_.value)
+        for _ <- fs do collector.results.read().get.await
+        fs.map(_.await)
       catch
         case e: Exception =>
           fs.foreach(_.cancel())
@@ -282,7 +271,7 @@ object Future:
       val collector = Collector(fs*)
       @scala.annotation.tailrec
       def loop(attempt: Int): T =
-        collector.results.read().get.result match
+        collector.results.read().get.awaitTry match
           case Failure(exception) =>
             if attempt == fs.length then /* everything failed */ throw exception else loop(attempt + 1)
           case Success(value) =>
@@ -429,13 +418,13 @@ end Task
 private def altAndAltCImplementation[T](shouldCancel: Boolean, futures: Future[T]*)(using Async): Future[T] = Future[T]:
   val fs: Seq[Future[(Try[T], Int)]] = futures.zipWithIndex.map({ (f, i) =>
     Future:
-      try (Success(f.value), i)
+      try (Success(f.await), i)
       catch case e => (Failure(e), i)
   })
 
   @tailrec
   def helper(failed: Int, fs: Seq[(Future[(Try[T], Int)], Int)]): Try[T] =
-    Async.await(Async.race(fs.map(_._1)*)) match
+    Async.race(fs.map(_._1)*).awaitTry match
       case Success((Success(x), i)) =>
         if (shouldCancel) {
           for ((f, j) <- futures.zipWithIndex) {

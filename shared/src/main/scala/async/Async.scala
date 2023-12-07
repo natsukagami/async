@@ -13,7 +13,10 @@ import scala.util.{Try, Failure, Success}
   */
 trait Async(using val support: AsyncSupport, val scheduler: support.Scheduler):
   /** Wait for completion of async source `src` and return the result */
-  def await[T](src: Async.Source[T]): Try[T]
+  def awaitTry[T](src: Async.Source[T]): Try[T]
+
+  /** Wait for completion of async source `src` and return the unwrapped value */
+  final def await[T](src: Async.Source[T]) = awaitTry(src).get
 
   /** The cancellation group for this Async */
   def group: CompletionGroup
@@ -29,7 +32,7 @@ object Async:
     private val condVar = lock.newCondition()
 
     /** Wait for completion of async source `src` and return the result */
-    override def await[T](src: Async.Source[T]): Try[T] =
+    override def awaitTry[T](src: Async.Source[T]): Try[T] =
       src
         .poll()
         .getOrElse:
@@ -58,9 +61,6 @@ object Async:
 
   /** The currently executing Async context */
   inline def current(using async: Async): Async = async
-
-  /** Await source result in currently executing Async context */
-  inline def await[T](src: Source[T])(using async: Async): Try[T] = async.await(src)
 
   def group[T](body: Async ?=> T)(using async: Async): T =
     withNewCompletionGroup(CompletionGroup(async.group.handleCompletion).link())(body)
@@ -116,7 +116,10 @@ object Async:
       resultOpt
 
     /** Utility method for direct waiting with `Async`. */
-    def await(using Async) = Async.await(this)
+    def awaitTry(using async: Async) = async.awaitTry(this)
+
+    /** Utility method for direct waiting with `Async`. */
+    def await(using Async) = awaitTry.get
 
   end Source
 
@@ -160,25 +163,17 @@ object Async:
 
   extension [T](src: Source[T])
     /** Pass on data transformed by `f` */
-    def map[U](f: T => U) = src.mapTry(_.map(f))
+    def map[U](f: T => U) = src.andThen((t, _) => f(t.get))
 
-    /** Handle both cases of [[Try]]. */
-    def foldLeft[U](f: T => U)(g: Throwable => U) = src.mapTry(v =>
-      Try {
-        v.match
-          case Failure(exception) => g(exception)
-          case Success(value)     => f(value)
-      }
-    )
-
-    def mapTry[U](f: Try[T] => Try[U]) =
+    /** Pass on data transformed by `f` */
+    def andThen[U](f: (Try[T], Source[T]) => U): Source[U] =
       new Source[U]:
         selfSrc =>
         def transform(k: Listener[U]) =
-          new Listener[T]:
+          new Listener.ForwardingListener[T](this, k):
             val lock = withLock(k) { inner => new ListenerLockWrapper(inner, selfSrc) }
             def complete(data: Try[T], source: Async.Source[T]) =
-              k.complete(f(data), selfSrc)
+              k.complete(Try(f(data, source)), selfSrc)
 
         def poll(k: Listener[U]): Boolean =
           src.poll(transform(k))
@@ -187,25 +182,35 @@ object Async:
         def dropListener(k: Listener[U]): Unit =
           src.dropListener(transform(k))
 
+  def race[T](sources: Source[T]*) = raceImpl[T, T]((v, _) => v)(sources*)
+  def raceWithOrigin[T](sources: Source[T]*) =
+    raceImpl[(Try[T], Source[T]), T]((v, src) => Success((v, src)))(sources*)
+
   /** Pass first result from any of `sources` to the continuation */
-  def race[T](sources: Source[T]*): Source[T] =
+  private def raceImpl[T, U](map: (Try[U], Source[U]) => Try[T])(sources: Source[U]*): Source[T] =
     new Source[T] { selfSrc =>
       def poll(k: Listener[T]): Boolean =
         val it = sources.iterator
         var found = false
 
-        while it.hasNext && !found do found = it.next.poll(k)
+        while it.hasNext && !found do
+          found = it.next.poll(
+            new Listener.ForwardingListener[U](this, k):
+              val lock = withLock(k) { inner => new ListenerLockWrapper(inner, selfSrc) }
+              def complete(data: Try[U], source: Async.Source[U]) =
+                k.complete(map(data, source), selfSrc)
+          )
         found
 
       def onComplete(k: Listener[T]): Unit =
-        val listener = new Listener.ForwardingListener[T](this, k)
+        val listener = new Listener.ForwardingListener[U](this, k)
           with NumberedLock
           with Listener.ListenerLock
           with Listener.PartialLock { self =>
           val lock = self
 
           var found = false
-          inline def heldLock = if k.lock == null then Listener.Locked else this
+          def heldLock = if k.lock == null then Listener.Locked else this
 
           /* == PartialLock implementation == */
           // Note that this is bogus if k.lock is null, but we'll never use it if it is.
@@ -232,38 +237,45 @@ object Async:
             self.releaseLock()
             if until == heldLock then null else k.lock
 
-          def complete(item: Try[T], src: Async.Source[T]) =
+          def complete(item: Try[U], src: Async.Source[U]) =
             found = true
             self.releaseLock()
             sources.foreach(s => if s != src then s.dropListener(self))
-            k.complete(item, selfSrc)
+            k.complete(map(item, src), selfSrc)
         } // end listener
 
         sources.foreach(_.onComplete(listener))
 
       def dropListener(k: Listener[T]): Unit =
-        val listener = Listener.ForwardingListener.empty(this, k)
-        sources.foreach(_.dropListener(listener))
+        val listener = Listener.ForwardingListener.empty[U](this, k)
+        sources.foreach(_.dropListener(???))
 
     }
-  end race
+  end raceImpl
 
+  /** Cases for handling async sources in a [[select]]. [[SelectCase]] can be constructed by extension methods `handle`
+    * and `handleVal` of [[Source]].
+    */
   opaque type SelectCase[T] = (Source[?], Try[Nothing] => T)
-  extension [T](src: Source[T]) inline def handle[U](f: Try[T] => U): SelectCase[U] = (src, f)
-  extension [T](src: Source[T])
-    inline def handleVal[U](f: T => U): SelectCase[U] = (
-      src,
-      (v: Try[T]) =>
-        v.match {
-          case Success(v)   => f(v)
-          case Failure(exc) => throw exc
-        }
-    )
+  //                           ^ unsafe types, but we only construct SelectCase from `handle` and `handleVal` which are safe
 
+  extension [T](src: Source[T])
+    /** Attach a handler to [[src]], creating a [[SelectCase]]. */
+    inline def handle[U](f: Try[T] => U): SelectCase[U] = (src, f)
+
+    /** Attach a handler to [[src]] that takes a [[T]] and throws if [[Failure]] was returned from the source, creating
+      * a [[SelectCase]].
+      */
+    inline def handleVal[U](f: T => U): SelectCase[U] = (src, t => f(t.get))
+
+  /** Race a list of sources with the corresponding handler functions, once an item has come back. Like [[race]],
+    * [[select]] guarantees exactly one of the sources are polled. Unlike `map`ping a [[Source]], the handler in
+    * [[select]] is run in the same async context as the calling context of [[select]].
+    */
   def select[T](cases: SelectCase[T]*)(using Async) =
-    val srcs = cases.map(c => c._1.mapTry(Success(_, c._2)))
-    val (input, handle) = Async.await(race(srcs*)).get
-    handle.asInstanceOf[input.type => T](input)
+    val (input, which) = raceWithOrigin(cases.map(_._1)*).await
+    val (_, handler) = cases.find(_._1 == which).get
+    handler.asInstanceOf[input.type => T](input)
 
   /** If left (respectively, right) source succeeds with `x`, pass `Left(x)`, (respectively, Right(x)) on to the
     * continuation.
