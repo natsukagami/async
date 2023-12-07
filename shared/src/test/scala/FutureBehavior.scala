@@ -1,4 +1,4 @@
-import gears.async.{Async, Future, Task, TaskSchedule, alt, altC, uninterruptible, given}
+import gears.async.{Async, Future, Task, TaskSchedule, uninterruptible, given}
 import gears.async.default.given
 import gears.async.Future.{*:, Promise, zip}
 import gears.async.AsyncOperations.*
@@ -117,7 +117,7 @@ class FutureBehavior extends munit.FunSuite {
   test("altC of multiple futures") {
     Async.blocking {
       var touched = java.util.concurrent.atomic.AtomicInteger(0)
-      alt(
+      Seq(
         Future {
           sleep(100)
           touched.incrementAndGet()
@@ -129,13 +129,13 @@ class FutureBehavior extends munit.FunSuite {
         Future {
           5
         }
-      ).awaitTry
+      ).altAll
       sleep(200)
       assertEquals(touched.get(), 2)
     }
     Async.blocking:
       var touched = 0
-      altC(Future { sleep(100); touched += 1 }, Future { sleep(100); touched += 1 }, Future { 5 }).awaitTry
+      Seq(Future { sleep(100); touched += 1 }, Future { sleep(100); touched += 1 }, Future { 5 }).altAllWithCancel
       sleep(200)
       assertEquals(touched, 0)
   }
@@ -229,7 +229,7 @@ class FutureBehavior extends munit.FunSuite {
     Async.blocking:
       assert(
         Set(10, 20, 30).contains(
-          alt(
+          Seq(
             Future {
               10
             },
@@ -239,7 +239,7 @@ class FutureBehavior extends munit.FunSuite {
             Future {
               30
             }
-          ).await
+          ).altAll
         )
       )
   }
@@ -362,7 +362,7 @@ class FutureBehavior extends munit.FunSuite {
     Async.blocking:
       for (i <- 1 to 20)
         assertEquals(
-          alt(
+          Seq(
             Future {
               sleep(Random.between(200, 300)); 10000 * i + 111
             },
@@ -372,8 +372,8 @@ class FutureBehavior extends munit.FunSuite {
             Future {
               sleep(Random.between(30, 50)); 10000 * i + 333
             }
-          ).awaitTry,
-          Success(10000 * i + 333)
+          ).altAllWithCancel,
+          10000 * i + 333
         )
   }
 
@@ -385,20 +385,22 @@ class FutureBehavior extends munit.FunSuite {
         val e3 = AssertionError(311)
 
         assertEquals(
-          alt(
-            Future {
-              sleep(Random.between(0, 250));
-              throw e1
-            },
-            Future {
-              sleep(Random.between(500, 1000));
-              throw e2
-            },
-            Future {
-              sleep(Random.between(0, 250));
-              throw e3
-            }
-          ).awaitTry,
+          Try(
+            Seq(
+              Future {
+                sleep(Random.between(0, 250));
+                throw e1
+              },
+              Future {
+                sleep(Random.between(500, 1000));
+                throw e2
+              },
+              Future {
+                sleep(Random.between(0, 250));
+                throw e3
+              }
+            ).altAllWithCancel
+          ),
           Failure(e2)
         )
   }

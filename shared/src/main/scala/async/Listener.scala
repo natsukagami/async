@@ -74,7 +74,7 @@ object Listener:
 
   object ForwardingListener:
     /** Create an empty [[ForwardingListener]] for equality comparison. */
-    def empty[T](src: Async.Source[?], inner: Listener[?]) = new ForwardingListener(src, inner):
+    def empty[T](src: Async.Source[?], inner: Listener[?]) = new ForwardingListener[T](src, inner):
       val lock = null
       override def complete(data: Try[T], source: Async.Source[T]) = ???
 

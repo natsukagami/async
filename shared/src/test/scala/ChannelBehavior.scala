@@ -8,8 +8,6 @@ import gears.async.{
   Task,
   TaskSchedule,
   UnboundedChannel,
-  alt,
-  altC,
   given
 }
 import gears.async.default.given

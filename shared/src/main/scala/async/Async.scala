@@ -119,7 +119,7 @@ object Async:
     def awaitTry(using async: Async) = async.awaitTry(this)
 
     /** Utility method for direct waiting with `Async`. */
-    def await(using Async) = awaitTry.get
+    final def await(using Async) = awaitTry.get
 
   end Source
 
@@ -248,7 +248,7 @@ object Async:
 
       def dropListener(k: Listener[T]): Unit =
         val listener = Listener.ForwardingListener.empty[U](this, k)
-        sources.foreach(_.dropListener(???))
+        sources.foreach(_.dropListener(listener))
 
     }
   end raceImpl

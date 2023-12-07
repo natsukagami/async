@@ -38,7 +38,7 @@ class TimerTest extends munit.FunSuite {
           sleep(1000)
           touched = true
       )
-      t.await
+      t.awaitTry
       assert(!touched)
       sleep(2000)
       assert(!touched)

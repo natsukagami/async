@@ -124,5 +124,5 @@ class CancellationBehavior extends munit.FunSuite:
         Async.current.group.cancel() // cancel now
         val f = startFuture(info, promise.complete(Success(())))
         promise.future.await
-        f.await
+        f.awaitTry
         info.assertCancelled()

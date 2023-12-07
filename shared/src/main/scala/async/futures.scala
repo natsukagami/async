@@ -161,46 +161,59 @@ object Future:
     f.complete(result)
     f
 
+  private inline def failPromiseOr[T, U](promise: Promise[T])(l: Async.Source[U])(body: U => Unit) =
+    l.onComplete(Listener {
+      case (Failure(exc), _) => promise.complete(Failure(exc))
+      case (Success(u), _)   => body(u)
+    })
+
   extension [T](f1: Future[T])
 
     /** Parallel composition of two futures. If both futures succeed, succeed with their values in a pair. Otherwise,
       * fail with the failure that was returned first.
       */
-    def zip[U](f2: Future[U])(using Async): Future[(T, U)] = Future:
-      Async.await(Async.either(f1, f2)).get match
-        case Left(x1)  => (x1, f2.value)
-        case Right(x2) => (f1.value, x2)
+    def zip[U](f2: Future[U])(using Async): Future[(T, U)] =
+      val promise = Promise[(T, U)]()
+      failPromiseOr(promise)(Async.either(f1, f2)) {
+        case Left(v)  => failPromiseOr(promise)(f2)(u => promise.complete(Success((v, u))))
+        case Right(u) => failPromiseOr(promise)(f1)(v => promise.complete(Success((v, u))))
+      }
+      promise.future
 
     /** Parallel composition of tuples of futures. Future.Success(EmptyTuple) might be treated as Nil.
       */
-    def *:[U <: Tuple](f2: Future[U])(using Async): Future[T *: U] = Future:
-      Async.await(Async.either(f1, f2)).get match
-        case Left(x1)  => x1 *: f2.value
-        case Right(x2) => f1.value *: x2
+    def *:[U <: Tuple](f2: Future[U])(using Async): Future[T *: U] =
+      val promise = Promise[(T *: U)]()
+      failPromiseOr(promise)(Async.either(f1, f2)) {
+        case Left(v)  => failPromiseOr(promise)(f2)(u => promise.complete(Success((v *: u))))
+        case Right(u) => failPromiseOr(promise)(f1)(v => promise.complete(Success((v *: u))))
+      }
+      promise.future
 
     /** Alternative parallel composition of this task with `other` task. If either task succeeds, succeed with the
       * success that was returned first. Otherwise, fail with the failure that was returned last.
       */
-    def alt(f2: Future[T])(using Async): Future[T] = Future:
-      Async.await(Async.either(f1.foldLeft(Success(_))(Failure(_)), f2.foldLeft(Success(_))(Failure(_)))).get match
-        case Left(Success(x1))    => x1
-        case Right(Success(x2))   => x2
-        case Left(_: Failure[?])  => f2.value
-        case Right(_: Failure[?]) => f1.value
+    def alt(f2: Future[T])(using Async): Future[T] = altImpl(false)(f2)
 
     /** Like `alt` but the slower future is cancelled. If either task succeeds, succeed with the success that was
       * returned first and the other is cancelled. Otherwise, fail with the failure that was returned last.
       */
-    def altWithCancel(f2: Future[T])(using Async): Future[T] = Future:
-      Async.await(Async.either(f1.foldLeft(Success(_))(Failure(_)), f2.foldLeft(Success(_))(Failure(_)))).get match
-        case Left(Success(x1)) =>
-          f2.cancel()
-          x1
-        case Right(Success(x2)) =>
-          f1.cancel()
-          x2
-        case Left(_: Failure[?])  => f2.value
-        case Right(_: Failure[?]) => f1.value
+    def altWithCancel(f2: Future[T])(using Async): Future[T] = altImpl(true)(f2)
+
+    private inline def altImpl(inline withCancel: Boolean)(f2: Future[T])(using Async): Future[T] =
+      val promise = Promise[T]()
+      Async
+        .raceWithOrigin(f1, f2)
+        .onComplete(Listener { (v, _) =>
+          v.get match
+            case (f @ Success(v), src) =>
+              inline if withCancel then (if src == f1 then f2 else f1).cancel()
+              promise.complete(f)
+            case (_, src) =>
+              val remain = if src == f1 then f2 else f1
+              failPromiseOr(promise)(remain)(v => promise.complete(Success(v)))
+        })
+      promise.future
 
   end extension
 
@@ -414,44 +427,6 @@ class Task[+T](val body: (Async, AsyncOperations) ?=> T):
     }
 
 end Task
-
-private def altAndAltCImplementation[T](shouldCancel: Boolean, futures: Future[T]*)(using Async): Future[T] = Future[T]:
-  val fs: Seq[Future[(Try[T], Int)]] = futures.zipWithIndex.map({ (f, i) =>
-    Future:
-      try (Success(f.await), i)
-      catch case e => (Failure(e), i)
-  })
-
-  @tailrec
-  def helper(failed: Int, fs: Seq[(Future[(Try[T], Int)], Int)]): Try[T] =
-    Async.race(fs.map(_._1)*).awaitTry match
-      case Success((Success(x), i)) =>
-        if (shouldCancel) {
-          for ((f, j) <- futures.zipWithIndex) {
-            if (j != i) f.cancel()
-          }
-        }
-        Success(x)
-      case Success((Failure(e), i)) =>
-        if (failed + 1 == futures.length)
-          Failure(e)
-        else
-          helper(failed + 1, fs.filter({ case (_, j) => j != i }))
-      case _ => assert(false)
-
-  helper(0, fs.zipWithIndex).get
-
-/** `alt` defined for multiple futures, not only two. If either task succeeds, succeed with the success that was
-  * returned first. Otherwise, fail with the failure that was returned last.
-  */
-def alt[T](futures: Future[T]*)(using Async): Future[T] =
-  altAndAltCImplementation(false, futures*)
-
-/** `altC` defined for multiple futures, not only two. If either task succeeds, succeed with the success that was
-  * returned first and cancel all other tasks. Otherwise, fail with the failure that was returned last.
-  */
-def altC[T](futures: Future[T]*)(using Async): Future[T] =
-  altAndAltCImplementation(true, futures*)
 
 def uninterruptible[T](body: Async ?=> T)(using ac: Async): T =
   val tracker = Cancellable.Tracking().link()
