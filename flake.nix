@@ -31,6 +31,7 @@
           ];
           shellHook = ''
             export LLVM_BIN=${pkgs.clang}/bin
+            export JAVA_HOME=${pkgs.jdk21}
           '';
         };
         # To be used to build `scala-native` and `munit`, as JDK21 + scala-native is not yet doing so well.

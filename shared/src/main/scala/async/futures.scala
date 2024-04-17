@@ -181,6 +181,18 @@ object Future:
   def apply[T](body: Async.Spawn ?=> T)(using async: Async, spawnable: Async.Spawn & async.type): Future[T] =
     RunnableFuture(body)
 
+  /** Create a future that asynchronously executes `body` that wraps its execution in a [[scala.util.Try]]. The returned
+    * future is watched by the [[Async.Spawn]] scope by default, i.e. it is waited for when this scope ends. However, if
+    * one of the `watched` futures fails, all are cancelled.
+    */
+  def watched[T](body: Async.Spawn ?=> T)(using async: Async, spawnable: Async.Spawn & async.type): Future[T] =
+    new RunnableFuture[T](body):
+      override def cancel() =
+        spawnable.waitGroup -= this
+        super.cancel()
+
+      spawnable.waitGroup += this
+
   /** A future that is immediately completed with the given result. */
   def now[T](result: Try[T]): Future[T] =
     val f = CoreFuture[T]()

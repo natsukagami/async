@@ -85,7 +85,17 @@ object Async:
     * Most functions should not take [[Spawn]] as a parameter, unless the function explicitly wants to spawn "dangling"
     * runnable [[Future]]s. Instead, functions should take [[Async]] and spawn scoped futures within [[Async.group]].
     */
-  opaque type Spawn <: Async = Async
+  class Spawn private[Async] (parent: Async) extends Async(using parent.support, parent.scheduler):
+    def await[T](src: Source[T]): T = parent.await(src)
+    def group: CompletionGroup = parent.group
+    def withGroup(group: CompletionGroup): Spawn = Spawn(parent.withGroup(group))
+
+    private[async] val waitGroup = mutable.Set[Future[_]]()
+
+    private[Async] def waitForGroup(): Unit =
+      import Future.*
+      waitGroup.toSeq.awaitAll(using this)
+  end Spawn
 
   /** Runs `body` inside a spawnable context where it is allowed to spawn concurrently runnable [[Future]]s. When the
     * body returns, all spawned futures are cancelled and waited for.
@@ -104,7 +114,11 @@ object Async:
       then async
       else async.withGroup(CompletionGroup.Unlinked)
 
-    try body(using async.withGroup(group))
+    try
+      val spawn = Spawn(async.withGroup(group))
+      val result = body(using spawn)
+      spawn.waitForGroup()
+      result
     finally
       group.cancel()
       group.waitCompletion()(using completionAsync)

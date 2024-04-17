@@ -447,4 +447,17 @@ class FutureBehavior extends munit.FunSuite {
       reader.awaitResult
       assertEquals(ch.read(), Right(2))
   }
+
+  test("Future.watch") {
+    Async.blocking:
+      val failing = Future:
+        Future.watched:
+          throw Exception("boom")
+        Future.watched:
+          import concurrent.duration.*
+          sleep(100.seconds)
+          2
+        1
+      assert(failing.awaitResult.isFailure)
+  }
 }
