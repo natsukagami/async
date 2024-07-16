@@ -2,7 +2,6 @@ import language.experimental.captureChecking
 
 import gears.async.Async
 import gears.async.Async.Source
-import gears.async.Async.race
 import gears.async.Future
 import gears.async.Future.Promise
 import gears.async.Listener
@@ -22,7 +21,7 @@ class ListenerBehavior extends munit.FunSuite:
     val prom1 = Promise[Unit]()
     val prom2 = Promise[Unit]()
     Async.blocking:
-      val raced = race(Future { prom1.await; 10 }, Future { prom2.await; 20 })
+      val raced = Async.race(Future { prom1.await; 10 }, Future { prom2.await; 20 })
       assert(!raced.poll(Listener.acceptingListener((x, _) => fail(s"race uncomplete $x"))))
       prom1.complete(Success(()))
       assertEquals(raced.await, 10)
@@ -182,7 +181,7 @@ class ListenerBehavior extends munit.FunSuite:
     val Seq(s1, s2) = srcs
     val Seq(l1, l2) = srcs.map(_ => {
       val src = TSource()
-      val r = race(src)
+      val r = Async.race(src)
       r.onComplete(l)
       src.listener.get
     })

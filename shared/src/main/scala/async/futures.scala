@@ -371,7 +371,7 @@ object Future:
     inline def add(future: Future[T]^) = addFuture(future)
     inline def +=(future: Future[T]^) = add(future)
 
-  extension [T](fs: Seq[Future[T]])
+  extension [T](@caps.unbox fs: Seq[Future[T]^])
     /** `.await` for all futures in the sequence, returns the results in a sequence, or throws if any futures fail. */
     def awaitAll(using Async) =
       val collector = Collector(fs*)

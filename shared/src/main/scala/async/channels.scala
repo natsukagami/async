@@ -421,7 +421,7 @@ object ChannelMultiplexer:
             for (s <- subscribersCopy) s.send(Failure(ChannelClosedException()))
             shouldTerminate = true
           case Right(Message.Refresh) => ()
-          
+
         Async.select((infoCase +: pubCases)*)
       }
     }
