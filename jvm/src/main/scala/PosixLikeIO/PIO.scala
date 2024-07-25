@@ -1,5 +1,7 @@
 package PosixLikeIO
 
+import language.experimental.captureChecking
+
 import gears.async.Scheduler
 import gears.async.default.given
 import gears.async.{Async, Future}
@@ -41,10 +43,10 @@ class File(val path: String) {
       channel.get.close()
       channel = None
 
-  def read(buffer: ByteBuffer): Future[Int] =
+  def read[Cap^](buffer: ByteBuffer): Future[Int, Cap] =
     assert(channel.isDefined)
 
-    Future.withResolver[Int]: resolver =>
+    Future.withResolver: resolver =>
       channel.get.read(
         buffer,
         0,
@@ -52,12 +54,12 @@ class File(val path: String) {
         resolver.toCompletionHandler
       )
 
-  def readString(size: Int, charset: Charset = StandardCharsets.UTF_8): Future[String] =
+  def readString[Cap^](size: Int, charset: Charset = StandardCharsets.UTF_8): Future[String, Cap] =
     assert(channel.isDefined)
     assert(size >= 0)
 
     val buffer = ByteBuffer.allocate(size)
-    Future.withResolver[String]: resolver =>
+    Future.withResolver: resolver =>
       channel.get.read(
         buffer,
         0,
@@ -69,10 +71,10 @@ class File(val path: String) {
         }
       )
 
-  def write(buffer: ByteBuffer): Future[Int] =
+  def write[Cap^](buffer: ByteBuffer): Future[Int, Cap] =
     assert(channel.isDefined)
 
-    Future.withResolver[Int]: resolver =>
+    Future.withResolver: resolver =>
       channel.get.write(
         buffer,
         0,
@@ -80,7 +82,7 @@ class File(val path: String) {
         resolver.toCompletionHandler
       )
 
-  def writeString(s: String, charset: Charset = StandardCharsets.UTF_8): Future[Int] =
+  def writeString[Cap^](s: String, charset: Charset = StandardCharsets.UTF_8): Future[Int, Cap] =
     write(ByteBuffer.wrap(s.getBytes(charset)))
 
   override def finalize(): Unit = {
@@ -111,7 +113,7 @@ class SocketUDP() {
       socket.get.close()
       socket = None
 
-  def send(data: ByteBuffer, address: String, port: Int): Future[Unit] =
+  def send[Cap^](data: ByteBuffer, address: String, port: Int): Future[Unit, Cap] =
     assert(socket.isDefined)
 
     Future.withResolver: resolver =>
@@ -120,7 +122,7 @@ class SocketUDP() {
           new DatagramPacket(data.array(), data.limit(), InetAddress.getByName(address), port)
         socket.get.send(packet)
 
-  def receive(): Future[DatagramPacket] =
+  def receive[Cap^](): Future[DatagramPacket, Cap] =
     assert(socket.isDefined)
 
     Future.withResolver: resolver =>

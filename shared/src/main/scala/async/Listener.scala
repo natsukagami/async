@@ -64,11 +64,11 @@ object Listener:
     * [[Async.Source.dropListener]] these listeners are compared for equality by the hash of the source and the inner
     * listener.
     */
-  abstract case class ForwardingListener[-T](src: Async.Source[?]^, inner: Listener[?]^) extends Listener[T]
+  abstract case class ForwardingListener[-T](src: Async.Source[?, ?]^, inner: Listener[?]^) extends Listener[T]
 
   object ForwardingListener:
     /** Creates an empty [[ForwardingListener]] for equality comparison. */
-    def empty(src: Async.Source[?]^, inner: Listener[?]^): ForwardingListener[Any]^{src, inner} = new ForwardingListener[Any](src, inner):
+    def empty(src: Async.Source[?, ?]^, inner: Listener[?]^): ForwardingListener[Any]^{src, inner} = new ForwardingListener[Any](src, inner):
       val lock = null
       override def complete(data: Any, source: SourceSymbol[Any]) = ???
 

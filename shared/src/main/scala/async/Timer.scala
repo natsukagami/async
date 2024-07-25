@@ -23,16 +23,16 @@ import Future.Promise
   * You might want to manually `cancel` the timer, so that it gets garbage collected (before the enclosing [[Async]]
   * scope ends).
   */
-class Timer(tickDuration: Duration) extends Cancellable {
+class Timer[Cap^](tickDuration: Duration) extends Cancellable {
   enum TimerEvent:
     case Tick
     case Cancelled
 
   private var isCancelled = false
 
-  private object Source extends Async.OriginalSource[this.TimerEvent] {
+  private object Source extends Async.OriginalSource[this.TimerEvent, Cap] {
     private val listeners : mutable.Set[(Listener[TimerEvent]^) @uncheckedCaptures] =
-      mutable.Set[(Listener[TimerEvent]^) @uncheckedCaptures]()
+      mutable.Set[Listener[TimerEvent]^{Cap^}]()
 
     def tick(): Unit = synchronized {
       listeners.filterInPlace(l =>
@@ -60,7 +60,7 @@ class Timer(tickDuration: Duration) extends Cancellable {
   }
 
   /** Ticks of the timer are delivered through this source. Note that ticks are ephemeral. */
-  inline final def src: Async.Source[this.TimerEvent] = Source
+  inline final def src: Async.Source[this.TimerEvent, Cap] = Source
 
   /** Starts the timer. Suspends until the timer is cancelled. */
   def run()(using Async, AsyncOperations): Unit =
