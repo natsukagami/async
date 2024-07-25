@@ -363,16 +363,16 @@ object Future:
     *   [[Future.awaitAll]] and [[Future.awaitFirst]] for simple usage of the collectors to get all results or the first
     *   succeeding one.
     */
-  class Collector[T](futures: (Future[T]^)*) extends BaseCollector[T, caps.CapSet^{futures*}]:
+  class Collector[T, C^](futures: (Future[T]^{C^})*) extends BaseCollector[T, C]:
     futures.foreach(addFuture)
   end Collector
 
   /** Like [[Collector]], but exposes the ability to add futures after creation. */
-  class MutableCollector[T, C^](futures: Seq[Future[T]^]) extends BaseCollector[T, caps.CapSet^{futures*, C^}]():
+  class MutableCollector[T, C^](futures: Seq[Future[T]^{C^}]) extends BaseCollector[T, C]():
     futures.foreach(addFuture)
     /** Add a new [[Future]] into the collector. */
-    def add(future: Future[T]^{futures*, C^}) = addFuture(future)
-    def +=(future: Future[T]^{futures*, C^}) = add(future)
+    def add(future: Future[T]^{C^}) = addFuture(future)
+    def +=(future: Future[T]^{C^}) = add(future)
 
   extension [T](@caps.unbox fs: Seq[Future[T]^])
     /** `.await` for all futures in the sequence, returns the results in a sequence, or throws if any futures fail. */

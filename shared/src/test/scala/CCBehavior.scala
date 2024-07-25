@@ -56,6 +56,17 @@ class CaptureCheckingBehavior extends munit.FunSuite:
       println(res.right.get.asInstanceOf[Future[Any]].awaitResult)
   }
 
+  test("collectors"):
+    case class C()
+    def consume(c: C^)(using Async): Int = ???
+    Async.blocking: spawn ?=>
+      val col =
+        val c : C^ = C()
+        val f1 = Future { 1 }
+        val f2: Future[Int]^{c, spawn} = Future { consume(c) }
+        Future.Collector[Int, caps.CapSet^{f1, f2}](f1, f2)
+      val fut: Future[Int]^{} = col.results.read().right.get // not ok
+
   // test("bad") {
   //   Async.blocking: async ?=>
   //     def fail3[T, E](fr: Future[Result[T, E]]^): Result[Future[T]^{async}, E] =
