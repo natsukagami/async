@@ -127,8 +127,8 @@ object Future:
         extends Async(using acSupport, acScheduler):
       /** Await a source first by polling it, and, if that fails, by suspending in a onComplete call.
         */
-      override def await[U, Cap >: caps.CapSet^{this} <: caps.CapSet^](src: Async.Source[U, Cap]^): U =
-        var listener: Listener[U]^{this} = uninitialized
+      override def await[U, Cap^](src: Async.Source[U, caps.CapSet^{Cap^, this}]^): U =
+        var listener: Listener[U]^{this} = null
         val dropListener = caps.unsafe.unsafeAssumePure(() => src.dropListener(listener))
         class CancelSuspension extends Cancellable:
           var suspension: acSupport.Suspension[Try[U], Unit] = uninitialized
@@ -203,20 +203,23 @@ object Future:
   /** A future that immediately rejects with the given exception. Similar to `Future.now(Failure(exception))`. */
   inline def rejected[Cap^](exception: Throwable): Future[Nothing, Cap] = now(Failure(exception))
 
-  extension [T, Cap^](f1: Future[T, Cap]^)
+  extension [T, Cap^](f1: Future[T, Cap]^{Cap^})
     /** Parallel composition of two futures. If both futures succeed, succeed with their values in a pair. Otherwise,
       * fail with the failure that was returned first.
       */
-    def zip[U](f2: Future[U, Cap]^): Future[(T, U), Cap]^{f1, f2} =
+    def zip[U](f2: Future[U, Cap]^{Cap^}): Future[(T, U), Cap]^{f1, f2} =
+      import caps.unsafe.unsafeAssumePure
+      val p1: Future[T, Cap] = f1.unsafeAssumePure.asInstanceOf
+      val p2: Future[U, Cap] = f2.unsafeAssumePure.asInstanceOf
       Future.withResolver: r =>
         Async
           .either(f1, f2)
           .onComplete(Listener { (v, _) =>
             v match
               case Left(Success(x1)) =>
-                f2.onComplete(Listener { (x2, _) => r.complete(x2.map((x1, _))) })
+                p2.onComplete(Listener { (x2, _) => r.complete(x2.map((x1, _))) })
               case Right(Success(x2)) =>
-                f1.onComplete(Listener { (x1, _) => r.complete(x1.map((_, x2))) })
+                p1.onComplete(Listener { (x1, _) => r.complete(x1.map((_, x2))) })
               case Left(Failure(ex))  => r.reject(ex)
               case Right(Failure(ex)) => r.reject(ex)
           })
@@ -235,21 +238,23 @@ object Future:
     //         case Right(Failure(ex)) => r.reject(ex)
     //     })
 
+
+  extension[T, Cap^](f1: Future[T, Cap]^{Cap^})
     /** Alternative parallel composition of this task with `other` task. If either task succeeds, succeed with the
       * success that was returned first. Otherwise, fail with the failure that was returned last.
       * @see
       *   [[orWithCancel]] for an alternative version where the slower future is cancelled.
       */
-    def or(f2: Future[T, Cap]^): Future[T, Cap]^{f1, f2} = orImpl(false)(f2)
+    def or(f2: Future[T, Cap]^{Cap^}): Future[T, Cap]^{f1, f2} = orImpl(false)(f2)
 
     /** Like `or` but the slower future is cancelled. If either task succeeds, succeed with the success that was
       * returned first and the other is cancelled. Otherwise, fail with the failure that was returned last.
       */
-    def orWithCancel(f2: Future[T, Cap]^): Future[T, Cap]^{f1, f2} = orImpl(true)(f2)
+    def orWithCancel(f2: Future[T, Cap]^{Cap^}): Future[T, Cap]^{f1, f2} = orImpl(true)(f2)
 
-    inline def orImpl(inline withCancel: Boolean)(f2: Future[T, Cap]^): Future[T, Cap]^{f1, f2} = Future.withResolver: r =>
+    inline def orImpl(inline withCancel: Boolean)(f2: Future[T, Cap]^{Cap^}): Future[T, Cap]^{f1, f2} = Future.withResolver: r =>
       Async
-        .raceWithOrigin(f1, f2)
+        .raceWithOrigin(Seq(f1, f2))
         .onComplete(Listener { case ((v, which), _) =>
           v match
             case Success(value) =>

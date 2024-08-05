@@ -31,30 +31,29 @@ class Timer[Cap^](tickDuration: Duration) extends Cancellable {
   private var isCancelled = false
 
   private object Source extends Async.OriginalSource[this.TimerEvent, Cap] {
-    private val listeners : mutable.Set[(Listener[TimerEvent]^) @uncheckedCaptures] =
-      mutable.Set[Listener[TimerEvent]^{Cap^}]()
+    private val listeners = mutable.Set[Listener[TimerEvent]^{Cap^}]()
 
     def tick(): Unit = synchronized {
       listeners.filterInPlace(l =>
-        l.completeNow(TimerEvent.Tick, src)
+        l.completeNow(TimerEvent.Tick, src.symbol)
         false
       )
     }
-    override def poll(k: Listener[TimerEvent]^): Boolean =
-      if isCancelled then k.completeNow(TimerEvent.Cancelled, this)
+    override def poll(k: Listener[TimerEvent]^{Cap^}): Boolean =
+      if isCancelled then k.completeNow(TimerEvent.Cancelled, this.symbol)
       else false // subscribing to a timer always takes you to the next tick
-    override def dropListener(k: Listener[TimerEvent]^): Unit = listeners -= k
-    override protected def addListener(k: Listener[TimerEvent]^): Unit =
-      if isCancelled then k.completeNow(TimerEvent.Cancelled, this)
+    override def dropListener(k: Listener[TimerEvent]^{Cap^}): Unit = listeners -= k
+    override protected def addListener(k: Listener[TimerEvent]^{Cap^}): Unit =
+      if isCancelled then k.completeNow(TimerEvent.Cancelled, this.symbol)
       else
         Timer.this.synchronized:
-          if isCancelled then k.completeNow(TimerEvent.Cancelled, this)
+          if isCancelled then k.completeNow(TimerEvent.Cancelled, this.symbol)
           else listeners += k
 
     def cancel(): Unit =
       synchronized { isCancelled = true }
       src.synchronized {
-        Source.listeners.foreach(_.completeNow(TimerEvent.Cancelled, src))
+        Source.listeners.foreach(_.completeNow(TimerEvent.Cancelled, src.symbol))
         Source.listeners.clear()
       }
   }
