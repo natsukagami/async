@@ -127,7 +127,7 @@ object Future:
         extends Async(using acSupport, acScheduler):
       /** Await a source first by polling it, and, if that fails, by suspending in a onComplete call.
         */
-      override def await[U, Cap^](src: Async.Source[U, caps.CapSet^{Cap^, this}]^): U =
+      override def await[U, Cap^](using caps.Contains[Cap, this.type])(src: Async.Source[U, Cap]^): U =
         var listener: Listener[U]^{this} = null
         val dropListener = caps.unsafe.unsafeAssumePure(() => src.dropListener(listener))
         class CancelSuspension extends Cancellable:
@@ -381,13 +381,13 @@ object Future:
 
   extension [T, Cap^](@caps.unbox fs: Seq[Future[T, Cap]^])
     /** `.await` for all futures in the sequence, returns the results in a sequence, or throws if any futures fail. */
-    def awaitAll(using Async) =
+    def awaitAll(using ac: Async)(using caps.Contains[Cap, ac.type]) =
       val collector = Collector(fs)
       for _ <- fs do collector.results.read().right.get.await
       fs.map(_.await)
 
     /** Like [[awaitAll]], but cancels all futures as soon as one of them fails. */
-    def awaitAllOrCancel(using Async) =
+    def awaitAllOrCancel(using ac: Async)(using caps.Contains[Cap, ac.type]) =
       val collector = Collector(fs)
       try
         for _ <- fs do collector.results.read().right.get.await
@@ -399,12 +399,12 @@ object Future:
 
     /** Race all futures, returning the first successful value. Throws the last exception received, if everything fails.
       */
-    def awaitFirst(using Async): T = awaitFirstImpl(false)
+    def awaitFirst(using ac: Async)(using caps.Contains[Cap, ac.type]): T = awaitFirstImpl(false)
 
     /** Like [[awaitFirst]], but cancels all other futures as soon as the first future succeeds. */
-    def awaitFirstWithCancel(using Async): T = awaitFirstImpl(true)
+    def awaitFirstWithCancel(using ac: Async)(using caps.Contains[Cap, ac.type]): T = awaitFirstImpl(true)
 
-    private inline def awaitFirstImpl(withCancel: Boolean)(using Async): T =
+    private inline def awaitFirstImpl(withCancel: Boolean)(using ac: Async)(using caps.Contains[Cap, ac.type]): T =
       val collector = Collector(fs)
       @scala.annotation.tailrec
       def loop(attempt: Int): T =
