@@ -110,7 +110,7 @@ object Future:
 
   /** A future that is completed by evaluating `body` as a separate asynchronous operation in the given `scheduler`
     */
-  private class RunnableFuture[+T, Cap^](body: Async.Spawn ?=> T)(using ac: Async) extends CoreFuture[T, Cap]:
+  private class RunnableFuture[+T, Cap^](body: Async.Spawn ?=> T)(using ac: Async^) extends CoreFuture[T, Cap]:
     private given acSupport: ac.support.type = ac.support
     private given acScheduler: ac.support.Scheduler = ac.scheduler
     /** RunnableFuture maintains its own inner [[CompletionGroup]], that is separated from the provided Async
@@ -163,19 +163,19 @@ object Future:
             cancellable.unlink()
             res.get
 
-      override def withGroup(group: CompletionGroup): Async = FutureAsync(group)
+      override def withGroup(group: CompletionGroup): Async^{ac} = FutureAsync(group)
 
     override def cancel(): Unit = if setCancelled() then this.innerGroup.cancel()
 
     link()
     ac.support.scheduleBoundary:
-      val result = Async.withNewCompletionGroup(innerGroup)(Try({
+      val result = Async.withNewCompletionGroup(innerGroup)(using FutureAsync(CompletionGroup.Unlinked))(Try({
         val r = body
         checkCancellation()
         r
       }).recoverWith { case _: InterruptedException | _: CancellationException =>
         Failure(new CancellationException())
-      })(using FutureAsync(CompletionGroup.Unlinked))
+      })
       complete(result)
 
   end RunnableFuture
@@ -183,9 +183,9 @@ object Future:
   /** Create a future that asynchronously executes `body` that wraps its execution in a [[scala.util.Try]]. The returned
     * future is linked to the given [[Async.Spawn]] scope by default, i.e. it is cancelled when this scope ends.
     */
-  def apply[T, Cap^](body: Async.Spawn ?=> T)(using async: Async, spawnable: Async.Spawn)(
+  def apply[T, Cap^](using async: Async^, spawnable: Async.Spawn^)(
     using async.type =:= spawnable.type
-  ): Future[T, Cap]^{body, spawnable} =
+  )(body: Async.Spawn^{spawnable} ?=> T): Future[T, Cap]^{body, spawnable} =
     RunnableFuture[T, Cap](body)(using spawnable)
 
   /** A future that is immediately completed with the given result. */
@@ -432,14 +432,14 @@ enum TaskSchedule:
 /** A task is a template that can be turned into a runnable future Composing tasks can be referentially transparent.
   * Tasks can be also ran on a specified schedule.
   */
-class Task[+T](val body: (Async, AsyncOperations) ?=> T):
+class Task[+T](val body: (Async^, AsyncOperations) ?=> T):
 
   /** Run the current task and returns the result. */
   def run()(using Async, AsyncOperations): T = body
 
   /** Start a future computed from the `body` of this task */
-  def start[Cap^]()(using async: Async, spawn: Async.Spawn)(using asyncOps: AsyncOperations)(using async.type =:= spawn.type): Future[T, Cap]^{body, spawn} =
-    Future(body)(using async, spawn)
+  def start[Cap^]()(using async: Async^, spawn: Async.Spawn^)(using asyncOps: AsyncOperations)(using async.type =:= spawn.type): Future[T, Cap]^{body, spawn} =
+    Future(using async, spawn)(body)
 
   def schedule(s: TaskSchedule): Task[T]^{body} =
     s match {
@@ -566,7 +566,7 @@ def uninterruptible[T](body: Async ?=> T)(using ac: Async): T =
   * If the [[Async]] context is cancelled during the execution of `fn`, `cancellable` will also be immediately
   * cancelled.
   */
-def cancellationScope[T](cancellable: Cancellable)(fn: => T)(using a: Async): T =
+def cancellationScope[T](cancellable: Cancellable)(fn: => T)(using a: Async^): T =
   cancellable.link()
   try fn
   finally cancellable.unlink()

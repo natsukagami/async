@@ -24,7 +24,7 @@ class CompletionGroup extends Cancellable.Tracking:
     .foreach(_.cancel())
 
   /** Wait for all members of the group to complete and unlink themselves. */
-  private[async] def waitCompletion()(using ac: Async): Unit =
+  private[async] def waitCompletion()(using ac: Async^): Unit =
     synchronized:
       if members.nonEmpty && cancelWait.isEmpty then cancelWait = Some(Promise())
     cancelWait.foreach(cWait => cWait.asInstanceOf[Promise[Unit, caps.CapSet^{ac}] /* can fix? */].await)
@@ -51,7 +51,7 @@ object CompletionGroup:
     */
   object Unlinked extends CompletionGroup:
     override def cancel(): Unit = ()
-    override def waitCompletion()(using Async): Unit = ()
+    override def waitCompletion()(using Async^): Unit = ()
     override def add(member: Cancellable): Unit = ()
     override def drop(member: Cancellable): Unit = ()
   end Unlinked

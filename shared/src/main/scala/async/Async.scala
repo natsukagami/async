@@ -33,7 +33,7 @@ import scala.annotation.targetName
   * @see
   *   [[Async$.group Async.group]] and [[Future$.apply Future.apply]] for [[Async]]-subscoping operations.
   */
-trait Async(using val support: AsyncSupport, val scheduler: support.Scheduler) extends caps.Capability:
+trait Async(using val support: AsyncSupport, val scheduler: support.Scheduler):
   /** Waits for completion of source `src` and returns the result. Suspends the computation.
     *
     * @see
@@ -46,11 +46,11 @@ trait Async(using val support: AsyncSupport, val scheduler: support.Scheduler) e
   def group: CompletionGroup
 
   /** Returns an [[Async]] context of the same kind as this one, with a new cancellation group. */
-  def withGroup(group: CompletionGroup): Async
+  def withGroup(group: CompletionGroup): Async^
 
 object Async:
   private class Blocking(val group: CompletionGroup)(using support: AsyncSupport, scheduler: support.Scheduler)
-      extends Async(using support, scheduler):
+      extends Async(using support, scheduler), caps.Capability:
     private val lock = ReentrantLock()
     private val condVar = lock.newCondition()
 
@@ -75,16 +75,16 @@ object Async:
           finally lock.unlock()
 
     /** An Async of the same kind as this one, with a new cancellation group */
-    override def withGroup(group: CompletionGroup): Async = Blocking(group)
+    override def withGroup(group: CompletionGroup): Async^ = Blocking(group)
 
   /** Execute asynchronous computation `body` on currently running thread. The thread will suspend when the computation
     * waits.
     */
-  def blocking[T](body: Async.Spawn ?=> T)(using support: AsyncSupport, scheduler: support.Scheduler): T =
-    group(body)(using Blocking(CompletionGroup.Unlinked))
+  def blocking[T](body: Async.Spawn^ ?=> T)(using support: AsyncSupport, scheduler: support.Scheduler): T =
+    group(using Blocking(CompletionGroup.Unlinked))(body)
 
   /** Returns the currently executing Async context. Equivalent to `summon[Async]`. */
-  inline def current(using async: Async): async.type = async
+  inline def current(using async: Async^): async.type = async
 
   /** [[Async.Spawn]] is a special subtype of [[Async]], also capable of spawning runnable [[Future]]s.
     *
@@ -96,21 +96,19 @@ object Async:
   /** Runs `body` inside a spawnable context where it is allowed to spawn concurrently runnable [[Future]]s. When the
     * body returns, all spawned futures are cancelled and waited for.
     */
-  def group[T](body: Async.Spawn ?=> T)(using Async): T =
+  def group[T](using ac: Async^)(body: Async.Spawn^{ac} ?=> T): T =
     withNewCompletionGroup(CompletionGroup().link())(body)
 
   /** Runs a body within another completion group. When the body returns, the group is cancelled and its completion
     * awaited with the `Unlinked` group.
     */
-  private[async] def withNewCompletionGroup[T](group: CompletionGroup)(body: Async.Spawn ?=> T)(using
-      async: Async
-  ): T =
+  private[async] def withNewCompletionGroup[T](group: CompletionGroup)(using ac: Async^)(body: Async.Spawn^{ac} ?=> T): T =
     val completionAsync =
-      if CompletionGroup.Unlinked == async.group
-      then async
-      else async.withGroup(CompletionGroup.Unlinked)
+      if CompletionGroup.Unlinked == ac.group
+      then ac
+      else ac.withGroup(CompletionGroup.Unlinked)
 
-    try body(using async.withGroup(group))
+    try body(using ac.withGroup(group))
     finally
       group.cancel()
       group.waitCompletion()(using completionAsync)
@@ -173,7 +171,7 @@ object Async:
       *
       * This is an utility method for direct waiting with `Async`, instead of going through listeners.
       */
-    final def awaitResult(using ac: Async)(using caps.Contains[Cap, ac.type]): T = ac.await[T, Cap](this)
+    final def awaitResult(using ac: Async^)(using caps.Contains[Cap, ac.type]): T = ac.await[T, Cap](this)
   end Source
 
   // an opaque identity for symbols
@@ -191,14 +189,14 @@ object Async:
       *   [[Source!.awaitResult awaitResult]] for non-unwrapping await.
       */
     @targetName("awaitTry")
-    def await(using ac: Async)(using caps.Contains[Cap, ac.type]): T = src.awaitResult.get
+    def await(using ac: Async^)(using caps.Contains[Cap, ac.type]): T = src.awaitResult.get
   extension [E, T, Cap^](src: Source[Either[E, T], Cap]^)
     /** Waits for an item to arrive from the source, then automatically unwraps it. Suspends until an item returns.
       * @see
       *   [[Source!.awaitResult awaitResult]] for non-unwrapping await.
       */
     @targetName("awaitEither")
-    def await(using ac: Async)(using caps.Contains[Cap, ac.type]) = src.awaitResult.right.get
+    def await(using ac: Async^)(using caps.Contains[Cap, ac.type]) = src.awaitResult.right.get
 
   /** An original source has a standard definition of [[Source.onComplete onComplete]] in terms of [[Source.poll poll]]
     * and [[OriginalSource.addListener addListener]].
@@ -418,7 +416,7 @@ object Async:
     * )
     *   }}}
     */
-  def select[T, Cap^](@caps.unbox cases: (SelectCase[T, Cap]^)*)(using ac: Async)(using caps.Contains[Cap, ac.type]) =
+  def select[T, Cap^](@caps.unbox cases: (SelectCase[T, Cap]^)*)(using ac: Async^)(using caps.Contains[Cap, ac.type]) =
     val (input, which) = raceWithOrigin(cases.map(_.src)).awaitResult
     val sc = cases.find(_.src.symbol == which).get
     sc(input.asInstanceOf[sc.Src])

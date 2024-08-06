@@ -29,13 +29,13 @@ class CaptureCheckingBehavior extends munit.FunSuite:
 
   test("good") {
     // don't do this in real code! capturing Async.blocking's Async context across functions is hard to track
-    Async.blocking: async ?=>
-      def good1[T, E, Cap^](@unbox frs: List[Future[Result[T, E], Cap]^]): Future[Result[List[T], E], caps.CapSet^{Cap^, async}]^{frs*, async} =
+    Async.blocking: ac ?=>
+      def good1[T, E, Cap^](using caps.Contains[Cap, ac.type])(@unbox frs: List[Future[Result[T, E], Cap]^]): Future[Result[List[T], E], caps.CapSet^{Cap^, ac}]^{frs*, ac} =
         Future: fut ?=>
           Result: ret ?=>
             frs.map(_.await.ok)
 
-      def good2[T, E, Cap^](@unbox rf: Result[Future[T, Cap]^, E]): Future[Result[T, E], caps.CapSet^{Cap^, async}]^{rf*, async} =
+      def good2[T, E, Cap^](using caps.Contains[Cap, ac.type])(@unbox rf: Result[Future[T, Cap]^, E]): Future[Result[T, E], caps.CapSet^{Cap^, ac}]^{rf*, ac} =
         Future:
           Result:
             rf.ok.await // OK, Future argument has type Result[T]

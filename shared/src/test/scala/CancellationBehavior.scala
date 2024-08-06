@@ -81,9 +81,9 @@ class CancellationBehavior extends munit.FunSuite:
     val info = Info()
     Async.blocking: async ?=>
       val promise = Future.Promise[Unit, caps.CapSet^{async}]()
-      Async.group:
+      Async.group: (spawn: Async.Spawn^{async}) ?=>
         startFuture(info, promise.complete(Success(())))
-        promise.await
+        promise.await(using spawn)
       info.assertCancelled()
 
   test("nested link group"):

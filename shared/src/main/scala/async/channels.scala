@@ -38,7 +38,7 @@ trait SendableChannel[-T]:
     * @throws ChannelClosedException
     *   if the channel was closed.
     */
-  def send(x: T)(using Async): Unit = sendSource(x).awaitResult match
+  def send(x: T)(using Async^): Unit = sendSource(x).awaitResult match
     case Right(_) => ()
     case Left(_)  => throw ChannelClosedException()
 end SendableChannel
@@ -60,7 +60,7 @@ trait ReadableChannel[+T]:
   /** Read an item from the channel, suspending until the item has been received. Returns
     * `Failure(ChannelClosedException)` if the channel was closed.
     */
-  def read()(using Async): Res[T] = readSource.awaitResult
+  def read()(using Async^): Res[T] = readSource.awaitResult
 end ReadableChannel
 
 /** A generic channel that can be sent to, received from and closed.
@@ -374,7 +374,7 @@ end Channel
   */
 trait ChannelMultiplexer[T] extends java.io.Closeable:
   /** Run the multiplexer. Returns after this multiplexer has been cancelled. */
-  def run()(using Async): Unit
+  def run()(using Async^): Unit
 
   def addPublisher(c: ReadableChannel[T]): Unit
   def removePublisher(c: ReadableChannel[T]): Unit
@@ -395,7 +395,7 @@ object ChannelMultiplexer:
     private val subscribers = ArrayBuffer[SendableChannel[Try[T]]]()
     private val infoChannel = UnboundedChannel[Message]()
 
-    def run()(using Async) = {
+    def run()(using Async^) = {
       var shouldTerminate = false
       while (!shouldTerminate) {
         val publishersCopy = synchronized(publishers.toSeq)
