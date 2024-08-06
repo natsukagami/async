@@ -174,7 +174,7 @@ object Async:
       * This is an utility method for direct waiting with `Async`, instead of going through listeners.
       */
     final def awaitResult(using ac: Async^{Cap^}): T = ac.await[T, Cap](
-      caps.unsafe.unsafeAssumePure(this.asInstanceOf)
+      caps.unsafe.unsafeAssumePure(this.asInstanceOf[Source[T, caps.CapSet^{Cap^, ac}]])
       /* TODO Fix */)
   end Source
 
@@ -284,6 +284,8 @@ object Async:
     *   [[Async$.select Async.select]] for a convenient syntax to race sources and awaiting them with [[Async]].
     */
   def race[T, Cap^](@caps.unbox sources: Seq[Source[T, Cap]^{Cap^}]): Source[T, Cap]^{Cap^} = raceImpl((v: T, _: SourceSymbol[T]) => v)(sources)
+  def race[T, Cap^](source: Source[T, Cap]^{Cap^}): Source[T, Cap]^{Cap^} = race(Seq(source))
+  def race[T, Cap^](s1: Source[T, Cap]^{Cap^}, s2: Source[T, Cap]^{Cap^}): Source[T, Cap]^{Cap^} = race(Seq(s1, s2))
 
   /** Like [[race]], but the returned value includes a reference to the upstream source that the item came from.
     * @see

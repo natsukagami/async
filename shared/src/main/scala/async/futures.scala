@@ -185,8 +185,8 @@ object Future:
     */
   def apply[T, Cap^](body: Async.Spawn ?=> T)(using async: Async, spawnable: Async.Spawn)(
     using async.type =:= spawnable.type
-  ): Future[T, caps.CapSet^{Cap^, spawnable}]^{body, spawnable} =
-    RunnableFuture[T, caps.CapSet^{Cap^, spawnable}](body)(using spawnable)
+  ): Future[T, Cap]^{body, spawnable} =
+    RunnableFuture[T, Cap](body)(using spawnable)
 
   /** A future that is immediately completed with the given result. */
   def now[T, Cap^](result: Try[T]): Future[T, Cap] =
@@ -369,7 +369,7 @@ object Future:
     *   [[Future.awaitAll]] and [[Future.awaitFirst]] for simple usage of the collectors to get all results or the first
     *   succeeding one.
     */
-  class Collector[T, FC^, C^](futures: (Future[T, FC]^{C^})*) extends BaseCollector[T, FC, C]:
+  class Collector[T, FC^, C^](futures: Seq[Future[T, FC]^{C^}]) extends BaseCollector[T, FC, C]:
     futures.foreach(addFuture)
 
   /** Like [[Collector]], but exposes the ability to add futures after creation. */
@@ -382,13 +382,13 @@ object Future:
   extension [T, Cap^](@caps.unbox fs: Seq[Future[T, Cap]^])
     /** `.await` for all futures in the sequence, returns the results in a sequence, or throws if any futures fail. */
     def awaitAll(using Async) =
-      val collector = Collector(fs*)
+      val collector = Collector(fs)
       for _ <- fs do collector.results.read().right.get.await
       fs.map(_.await)
 
     /** Like [[awaitAll]], but cancels all futures as soon as one of them fails. */
     def awaitAllOrCancel(using Async) =
-      val collector = Collector(fs*)
+      val collector = Collector(fs)
       try
         for _ <- fs do collector.results.read().right.get.await
         fs.map(_.await)
@@ -405,7 +405,7 @@ object Future:
     def awaitFirstWithCancel(using Async): T = awaitFirstImpl(true)
 
     private inline def awaitFirstImpl(withCancel: Boolean)(using Async): T =
-      val collector = Collector(fs*)
+      val collector = Collector(fs)
       @scala.annotation.tailrec
       def loop(attempt: Int): T =
         collector.results.read().right.get.awaitResult match
@@ -438,7 +438,7 @@ class Task[+T](val body: (Async, AsyncOperations) ?=> T):
   def run()(using Async, AsyncOperations): T = body
 
   /** Start a future computed from the `body` of this task */
-  def start[Cap^]()(using async: Async, spawn: Async.Spawn)(using asyncOps: AsyncOperations)(using async.type =:= spawn.type): Future[T, caps.CapSet^{Cap^, spawn}]^{body, spawn} =
+  def start[Cap^]()(using async: Async, spawn: Async.Spawn)(using asyncOps: AsyncOperations)(using async.type =:= spawn.type): Future[T, Cap]^{body, spawn} =
     Future(body)(using async, spawn)
 
   def schedule(s: TaskSchedule): Task[T]^{body} =

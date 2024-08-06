@@ -30,30 +30,30 @@ class CaptureCheckingBehavior extends munit.FunSuite:
   test("good") {
     // don't do this in real code! capturing Async.blocking's Async context across functions is hard to track
     Async.blocking: async ?=>
-      def good1[T, E](@unbox frs: List[Future[Result[T, E]]^]): Future[Result[List[T], E]]^{frs*, async} =
+      def good1[T, E, Cap^](@unbox frs: List[Future[Result[T, E], Cap]^]): Future[Result[List[T], E], caps.CapSet^{Cap^, async}]^{frs*, async} =
         Future: fut ?=>
           Result: ret ?=>
             frs.map(_.await.ok)
 
-      def good2[T, E](@unbox rf: Result[Future[T]^, E]): Future[Result[T, E]]^{rf*, async} =
+      def good2[T, E, Cap^](@unbox rf: Result[Future[T, Cap]^, E]): Future[Result[T, E], caps.CapSet^{Cap^, async}]^{rf*, async} =
         Future:
           Result:
             rf.ok.await // OK, Future argument has type Result[T]
 
-      def useless4[T, E](fr: Future[Result[T, E]]^) =
+      def useless4[T, E, Cap^](fr: Future[Result[T, E], Cap]^) =
         fr.await.map(Future(_))
   }
 
   test("very bad") {
     Async.blocking: async ?=>
-      def fail3[T, E](fr: Future[Result[T, E]]^) =
+      def fail3[T, E, Cap^](fr: Future[Result[T, E], Cap]^) =
         Result: label ?=>
           Future: fut ?=>
             fr.await.ok // error, escaping label from Result
 
       val fut = Future(Left(5))
       val res = fail3(fut)
-      println(res.right.get.asInstanceOf[Future[Any]].awaitResult)
+      println(res.right.get.asInstanceOf[Future[Any, ?]].awaitResult)
   }
 
   test("collectors"):
@@ -63,13 +63,13 @@ class CaptureCheckingBehavior extends munit.FunSuite:
       val col =
         val c : C^ = C()
         val f1 = Future { 1 }
-        val f2: Future[Int]^{c, spawn} = Future { consume(c) }
-        Future.Collector[Int, caps.CapSet^{f1, f2}](f1, f2)
-      val fut: Future[Int]^{} = col.results.read().right.get // not ok
+        val f2 = Future { consume(c) }
+        Future.Collector(Seq(f1, f2))
+      val fut = col.results.read().right.get // not ok
 
   // test("bad") {
   //   Async.blocking: async ?=>
-  //     def fail3[T, E](fr: Future[Result[T, E]]^): Result[Future[T]^{async}, E] =
+  //     def fail3[T, E, Cap^](fr: Future[Result[T, E], Cap]^): Result[Future[T, Cap]^{async}, E] =
   //       Result: label ?=>
   //         Future: fut ?=>
   //           fr.await.ok // error, escaping label from Result

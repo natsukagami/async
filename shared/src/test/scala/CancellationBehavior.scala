@@ -32,7 +32,7 @@ class CancellationBehavior extends munit.FunSuite:
           case State.Initialized =>
             state = State.Running
           case _ => fail(s"running failed, state is $state")
-    def initialize(f: Future[?]^) =
+    def initialize() =
       synchronized:
         state match
           case State.Ready =>
@@ -57,7 +57,7 @@ class CancellationBehavior extends munit.FunSuite:
         case e =>
           info.state = State.Failed(e)
           throw e
-    info.initialize(f)
+    info.initialize()
     f
 
   test("no cancel"):
@@ -79,8 +79,8 @@ class CancellationBehavior extends munit.FunSuite:
 
   test("link group"):
     val info = Info()
-    Async.blocking:
-      val promise = Future.Promise[Unit]()
+    Async.blocking: async ?=>
+      val promise = Future.Promise[Unit, caps.CapSet^{async}]()
       Async.group:
         startFuture(info, promise.complete(Success(())))
         promise.await
@@ -88,8 +88,8 @@ class CancellationBehavior extends munit.FunSuite:
 
   test("nested link group"):
     val (info1, info2) = (Info(), Info())
-    val (promise1, promise2) = (Future.Promise[Unit](), Future.Promise[Unit]())
-    Async.blocking:
+    Async.blocking: async ?=>
+      val (promise1, promise2) = (Future.Promise[Unit, caps.CapSet^{async}](), Future.Promise[Unit, caps.CapSet^{async}]())
       Async.group:
         startFuture(
           info1, {
@@ -125,8 +125,8 @@ class CancellationBehavior extends munit.FunSuite:
   test("link to already cancelled awaited"):
     val info = Info()
     Async.blocking:
-      val promise = Future.Promise[Unit]()
-      Async.group:
+      Async.group: async ?=>
+        val promise = Future.Promise[Unit, caps.CapSet^{async}]()
         Async.current.group.cancel() // cancel now
         val f = startFuture(info, promise.complete(Success(())))
         promise.awaitResult

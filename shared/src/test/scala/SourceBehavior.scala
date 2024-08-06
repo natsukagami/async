@@ -140,10 +140,10 @@ class SourceBehavior extends munit.FunSuite {
   }
 
   test("all listeners in chain fire") {
-    Async.blocking:
-      var aRan = Future.Promise[Unit]()
-      var bRan = Future.Promise[Unit]()
-      val wait = Future.Promise[Unit]()
+    Async.blocking: async ?=>
+      var aRan = Future.Promise[Unit, caps.CapSet]()
+      var bRan = Future.Promise[Unit, caps.CapSet]()
+      val wait = Future.Promise[Unit, caps.CapSet]()
       val f = Future {
         wait.await
         10
@@ -191,7 +191,7 @@ class SourceBehavior extends munit.FunSuite {
   }
 
   test("transformValuesWith unsubscribes") {
-    val base = Future.Promise[Unit]()
+    val base = Future.Promise[Unit, caps.CapSet]()
     val derived = base.transformValuesWith(_ => ())
 
     var touched = false

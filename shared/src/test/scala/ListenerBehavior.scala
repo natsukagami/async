@@ -18,9 +18,9 @@ class ListenerBehavior extends munit.FunSuite:
   given munit.Assertions = this
 
   test("race two futures"):
-    val prom1 = Promise[Unit]()
-    val prom2 = Promise[Unit]()
-    Async.blocking:
+    Async.blocking: async ?=>
+      val prom1 = Promise[Unit, caps.CapSet^{async}]()
+      val prom2 = Promise[Unit, caps.CapSet^{async}]()
       val raced = Async.race(Future { prom1.await; 10 }, Future { prom2.await; 20 })
       assert(!raced.poll(Listener.acceptingListener((x, _) => fail(s"race uncomplete $x"))))
       prom1.complete(Success(()))
@@ -140,10 +140,10 @@ class ListenerBehavior extends munit.FunSuite:
     assert(source2.listener.isEmpty)
 
   test("race polling"):
-    val source1 = new Async.Source[Int]():
-      override def poll(k: Listener[Int]^): Boolean = k.completeNow(1, this) || true
-      override def onComplete(k: Listener[Int]^): Unit = ???
-      override def dropListener(k: Listener[Int]^): Unit = ???
+    val source1 = new Async.Source[Int, caps.CapSet]():
+      override def poll(k: Listener[Int]): Boolean = k.completeNow(1, this) || true
+      override def onComplete(k: Listener[Int]): Unit = ???
+      override def dropListener(k: Listener[Int]): Unit = ???
     val source2 = TSource()
     val listener = TestListener(1)
 
@@ -255,9 +255,9 @@ private class TestListener(expected: Int)(using asst: munit.Assertions) extends 
 private class NumberedTestListener private (sleep: AtomicBoolean, fail: Boolean, expected: Int)(using munit.Assertions)
     extends TestListener(expected):
   // A promise that is waited for inside `lock` until `continue` is called.
-  private val waiter = if sleep.get() then Some(Promise[Unit]()) else None
+  private val waiter = if sleep.get() then Some(Promise[Unit, caps.CapSet]()) else None
   // A promise that is resolved right before the lock starts waiting for `waiter`.
-  private val sleepPromise = Promise[Unit]()
+  private val sleepPromise = Promise[Unit, caps.CapSet]()
 
   /** A [[Future]] that resolves when the listener goes to sleep. */
   val sleeping = sleepPromise.asFuture
@@ -279,19 +279,19 @@ private class NumberedTestListener private (sleep: AtomicBoolean, fail: Boolean,
   def continue() = waiter.get.complete(Success(()))
 
 /** Dummy source that never completes */
-private object Dummy extends Async.Source[Nothing]:
-  def poll(k: Listener[Nothing]^): Boolean = false
-  def onComplete(k: Listener[Nothing]^): Unit = ()
-  def dropListener(k: Listener[Nothing]^): Unit = ()
+private object Dummy extends Async.Source[Nothing, caps.CapSet]:
+  def poll(k: Listener[Nothing]): Boolean = false
+  def onComplete(k: Listener[Nothing]): Unit = ()
+  def dropListener(k: Listener[Nothing]): Unit = ()
 
-private class TSource(using asst: munit.Assertions) extends Async.Source[Int]:
+private class TSource(using asst: munit.Assertions) extends Async.Source[Int, caps.CapSet]:
   var listener: Option[Listener[Int]] = None
-  def poll(k: Listener[Int]^): Boolean = false
-  def onComplete(k: Listener[Int]^): Unit =
+  def poll(k: Listener[Int]): Boolean = false
+  def onComplete(k: Listener[Int]): Unit =
     import caps.unsafe.unsafeAssumePure
     assert(listener.isEmpty)
     listener = Some(k.unsafeAssumePure)
-  def dropListener(k: Listener[Int]^): Unit =
+  def dropListener(k: Listener[Int]): Unit =
     if listener.isDefined then
       asst.assert(k == listener.get)
       listener = None
