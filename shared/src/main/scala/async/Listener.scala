@@ -7,6 +7,7 @@ import gears.async.Async.SourceSymbol
 
 import java.util.concurrent.locks.ReentrantLock
 import scala.annotation.tailrec
+import scala.annotation.constructorOnly
 
 /** A listener, representing an one-time value receiver of an [[Async.Source]].
   *
@@ -64,11 +65,20 @@ object Listener:
     * [[Async.Source.dropListener]] these listeners are compared for equality by the hash of the source and the inner
     * listener.
     */
-  abstract case class ForwardingListener[-T](src: Async.Source[?]^, inner: Listener[?]^) extends Listener[T]
+  abstract class ForwardingListener[-T](@constructorOnly src: Async.Source[?]^, @constructorOnly inner: Listener[?]^) extends Listener[T]:
+    private val (_src, _inner) = caps.unsafe.unsafeAssumePure((src: Any, inner: Any))
+    override def hashCode(): Int = (_src, _inner).hashCode()
+
+    override def equals(that: Any): Boolean = that match
+      case fl: ForwardingListener[?] => fl._inner == _inner && fl._src == _src
+      case _ => false
+
 
   object ForwardingListener:
     /** Creates an empty [[ForwardingListener]] for equality comparison. */
-    def empty(src: Async.Source[?]^, inner: Listener[?]^): ForwardingListener[Any]^{src, inner} = new ForwardingListener[Any](src, inner):
+    def empty(src: Async.Source[?]^, inner: Listener[?]^): ForwardingListener[Any] = Empty(src, inner)
+
+    private final class Empty(@constructorOnly src: Async.Source[?]^, @constructorOnly inner: Listener[?]^) extends ForwardingListener[Any](src, inner):
       val lock = null
       override def complete(data: Any, source: SourceSymbol[Any]) = ???
 

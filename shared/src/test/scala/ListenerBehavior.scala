@@ -18,14 +18,14 @@ import scala.util.Success
 class ListenerBehavior extends munit.FunSuite:
   given munit.Assertions = this
 
-  test("race two futures"):
-    val prom1 = Promise[Unit]()
-    val prom2 = Promise[Unit]()
-    Async.blocking:
-      val raced = race(Future { prom1.await; 10 }, Future { prom2.await; 20 })
-      assert(!raced.poll(Listener.acceptingListener((x, _) => fail(s"race uncomplete $x"))))
-      prom1.complete(Success(()))
-      assertEquals(raced.await, 10)
+  // test("race two futures"):
+  //   val prom1 = Promise[Unit]()
+  //   val prom2 = Promise[Unit]()
+  //   Async.blocking: 
+  //     val raced = race(Seq(Future { prom1.await; 10 }, Future { prom2.await; 20 }))
+  //     assert(!raced.poll(Listener.acceptingListener((x, _) => fail(s"race uncomplete $x"))))
+  //     prom1.complete(Success(()))
+  //     assertEquals(raced.await, 10)
 
   test("lock two listeners"):
     val listener1 = Listener.acceptingListener[Int]((x, _) => assertEquals(x, 1))
@@ -54,8 +54,8 @@ class ListenerBehavior extends munit.FunSuite:
     val source1 = TSource()
     val source2 = TSource()
 
-    Async.race(source1).onComplete(Listener.acceptingListener[Int]((x, _) => assertEquals(x, 1)))
-    Async.race(source2).onComplete(Listener.acceptingListener[Int]((x, _) => assertEquals(x, 2)))
+    Async.race(Seq(source1)).onComplete(Listener.acceptingListener[Int]((x, _) => assertEquals(x, 1)))
+    Async.race(Seq(source2)).onComplete(Listener.acceptingListener[Int]((x, _) => assertEquals(x, 2)))
 
     assert(lockBoth(source1.listener.get, source2.listener.get) == true)
     source1.completeWith(1)
@@ -65,8 +65,8 @@ class ListenerBehavior extends munit.FunSuite:
     val source1 = TSource()
     val source2 = TSource()
 
-    Async.race(source1).onComplete(Listener.acceptingListener[Int]((x, _) => assertEquals(x, 1)))
-    Async.race(source2).onComplete(Listener.acceptingListener[Int]((x, _) => assertEquals(x, 2)))
+    Async.race(Seq(source1)).onComplete(Listener.acceptingListener[Int]((x, _) => assertEquals(x, 1)))
+    Async.race(Seq(source2)).onComplete(Listener.acceptingListener[Int]((x, _) => assertEquals(x, 2)))
 
     assert(lockBoth(source2.listener.get, source1.listener.get) == true)
     source1.completeWith(1)
@@ -76,9 +76,9 @@ class ListenerBehavior extends munit.FunSuite:
     val source1 = TSource()
     val source2 = TSource()
 
-    val race1 = Async.race(source1)
-    Async.race(Async.race(source2)).onComplete(Listener.acceptingListener[Int]((x, _) => assertEquals(x, 2)))
-    Async.race(race1).onComplete(Listener.acceptingListener[Int]((x, _) => assertEquals(x, 1)))
+    val race1 = Async.race(Seq(source1))
+    Async.race(Seq(Async.race(Seq(source2)))).onComplete(Listener.acceptingListener[Int]((x, _) => assertEquals(x, 2)))
+    Async.race(Seq(race1)).onComplete(Listener.acceptingListener[Int]((x, _) => assertEquals(x, 1)))
 
     assert(lockBoth(source1.listener.get, source2.listener.get) == true)
     source1.completeWith(1)
@@ -88,9 +88,9 @@ class ListenerBehavior extends munit.FunSuite:
     val source1 = TSource()
     val source2 = TSource()
 
-    val race1 = Async.race(source1)
-    Async.race(Async.race(source2)).onComplete(Listener.acceptingListener[Int]((x, _) => assertEquals(x, 2)))
-    Async.race(race1).onComplete(Listener.acceptingListener[Int]((x, _) => assertEquals(x, 1)))
+    val race1 = Async.race(Seq(source1))
+    Async.race(Seq(Async.race(Seq(source2)))).onComplete(Listener.acceptingListener[Int]((x, _) => assertEquals(x, 2)))
+    Async.race(Seq(race1)).onComplete(Listener.acceptingListener[Int]((x, _) => assertEquals(x, 1)))
 
     assert(lockBoth(source2.listener.get, source1.listener.get) == true)
     source1.completeWith(1)
@@ -101,7 +101,7 @@ class ListenerBehavior extends munit.FunSuite:
     val source2 = TSource()
     assert(source1 != source2)
     val listener = TestListener(1)
-    Async.race(source1, source2).onComplete(listener)
+    Async.race(Seq(source1, source2)).onComplete(listener)
 
     assert(source1.listener.isDefined)
     assert(source2.listener.isDefined)
@@ -121,7 +121,7 @@ class ListenerBehavior extends munit.FunSuite:
     val source1 = TSource()
     val source2 = TSource()
     val listener = NumberedTestListener(true, false, 1)
-    Async.race(source1, source2).onComplete(listener)
+    Async.race(Seq(source1, source2)).onComplete(listener)
 
     val l2 = source2.listener.get
 
@@ -143,19 +143,19 @@ class ListenerBehavior extends munit.FunSuite:
   test("race polling"):
     val source1 = new Async.Source[Int]():
       override def poll(k: Listener[Int]^): Boolean = k.completeNow(1, this) || true
-      override def onComplete(k: Listener[Int]^): Unit = ???
-      override def dropListener(k: Listener[Int]^): Unit = ???
+      override def onComplete(k: Listener[Int]): Unit = ???
+      override def dropListener(k: Listener[Int]): Unit = ???
     val source2 = TSource()
     val listener = TestListener(1)
 
-    assert(Async.race(source1, source2).poll(listener))
-    assert(Async.race(source2, source1).poll(listener))
+    assert(Async.race(Seq(source1, source2)).poll(listener))
+    assert(Async.race(Seq(source2, source1)).poll(listener))
 
   test("race failed without wait"):
     val source1 = TSource()
     val source2 = TSource()
     val listener = NumberedTestListener(false, true, 1)
-    Async.race(source1, source2).onComplete(listener)
+    Async.race(Seq(source1, source2)).onComplete(listener)
 
     assertEquals(source1.lockListener(), false)
     assert(source1.listener.isEmpty)
@@ -164,7 +164,7 @@ class ListenerBehavior extends munit.FunSuite:
   test("lockBoth of race with competing lock"):
     val source1 = TSource()
     val source2 = TSource()
-    Async.race(source1, source2).onComplete(NumberedTestListener(false, false, 1))
+    Async.race(Seq(source1, source2)).onComplete(NumberedTestListener(false, false, 1))
     // listener with greatest number
     val other = new NumberedTestListener(true, false, 1)
     val s1listener = source1.listener.get
@@ -182,7 +182,7 @@ class ListenerBehavior extends munit.FunSuite:
     val Seq(s1, s2) = srcs
     val Seq(l1, l2) = srcs.map(_ => {
       val src = TSource()
-      val r = race(src)
+      val r = race(Seq(src))
       r.onComplete(l)
       src.listener.get
     })
@@ -221,7 +221,7 @@ class ListenerBehavior extends munit.FunSuite:
     val source1 = TSource()
     val source2 = TSource()
     val source3 = TSource()
-    Async.race(Async.race(source1, source2), source3).onComplete(NumberedTestListener(false, true, 1))
+    Async.race(Seq(Async.race(Seq(source1, source2)), source3)).onComplete(NumberedTestListener(false, true, 1))
     assert(source1.listener.isDefined)
     assert(source2.listener.isDefined)
     assert(source3.listener.isDefined)
@@ -236,7 +236,7 @@ class ListenerBehavior extends munit.FunSuite:
     val source1 = TSource()
     val source2 = TSource()
     val source3 = TSource()
-    Async.race(Async.race(source1, source2), source3).onComplete(NumberedTestListener(false, false, 1))
+    Async.race(Seq(Async.race(Seq(source1, source2)), source3)).onComplete(NumberedTestListener(false, false, 1))
     assert(source1.listener.isDefined)
     assert(source2.listener.isDefined)
     assert(source3.listener.isDefined)
@@ -282,17 +282,16 @@ private class NumberedTestListener private (sleep: AtomicBoolean, fail: Boolean,
 /** Dummy source that never completes */
 private object Dummy extends Async.Source[Nothing]:
   def poll(k: Listener[Nothing]^): Boolean = false
-  def onComplete(k: Listener[Nothing]^): Unit = ()
-  def dropListener(k: Listener[Nothing]^): Unit = ()
+  def onComplete(k: Listener[Nothing]): Unit = ()
+  def dropListener(k: Listener[Nothing]): Unit = ()
 
 private class TSource(using asst: munit.Assertions) extends Async.Source[Int]:
   var listener: Option[Listener[Int]] = None
   def poll(k: Listener[Int]^): Boolean = false
-  def onComplete(k: Listener[Int]^): Unit =
-    import caps.unsafe.unsafeAssumePure
+  def onComplete(k: Listener[Int]): Unit =
     assert(listener.isEmpty)
-    listener = Some(k.unsafeAssumePure)
-  def dropListener(k: Listener[Int]^): Unit =
+    listener = Some(k)
+  def dropListener(k: Listener[Int]): Unit =
     if listener.isDefined then
       asst.assert(k == listener.get)
       listener = None

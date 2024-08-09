@@ -1,5 +1,7 @@
 package measurements
 
+import language.experimental.captureChecking
+
 import gears.async.default.given
 import gears.async.{Async, BufferedChannel, ChannelMultiplexer, Future, SyncChannel}
 
@@ -65,9 +67,9 @@ def measureIterations[T](action: () => T): Int =
 
   val c1: Double = measureIterations: () =>
     Async.blocking:
-      Async.race(Future { Thread.sleep(10) }, Future { Thread.sleep(100) }, Future { Thread.sleep(50) }).await
-      Async.race(Future { Thread.sleep(50) }, Future { Thread.sleep(10) }, Future { Thread.sleep(100) }).await
-      Async.race(Future { Thread.sleep(100) }, Future { Thread.sleep(50) }, Future { Thread.sleep(10) }).await
+      Async.race(Seq(Future { Thread.sleep(10) }, Future { Thread.sleep(100) }, Future { Thread.sleep(50) })).await
+      Async.race(Seq(Future { Thread.sleep(50) }, Future { Thread.sleep(10) }, Future { Thread.sleep(100) })).await
+      Async.race(Seq(Future { Thread.sleep(100) }, Future { Thread.sleep(50) }, Future { Thread.sleep(10) })).await
 
   val c2: Double = measureIterations: () =>
     Async.blocking:
@@ -106,9 +108,9 @@ def measureIterations[T](action: () => T): Int =
 
   val c1: Double = measureIterations: () =>
     Async.blocking:
-      Async.race(Future { Thread.sleep(10) }, Future { Thread.sleep(100) }, Future { Thread.sleep(50) }).await
-      Async.race(Future { Thread.sleep(50) }, Future { Thread.sleep(10) }, Future { Thread.sleep(100) }).await
-      Async.race(Future { Thread.sleep(100) }, Future { Thread.sleep(50) }, Future { Thread.sleep(10) }).await
+      Async.race(Seq(Future { Thread.sleep(10) }, Future { Thread.sleep(100) }, Future { Thread.sleep(50) })).await
+      Async.race(Seq(Future { Thread.sleep(50) }, Future { Thread.sleep(10) }, Future { Thread.sleep(100) })).await
+      Async.race(Seq(Future { Thread.sleep(100) }, Future { Thread.sleep(50) }, Future { Thread.sleep(10) })).await
 
   val c2: Double = measureIterations: () =>
     @volatile var i1 = true

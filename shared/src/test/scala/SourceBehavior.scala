@@ -182,8 +182,10 @@ class SourceBehavior extends munit.FunSuite {
       assertEquals(
         Async
           .race(
-            src, // this should block forever, so never resolve!
-            Future { sleep(200); 0 }
+            Seq(
+              src, // this should block forever, so never resolve!
+              Future { sleep(200); 0 }
+            )
           )
           .awaitResult,
         Success(0)

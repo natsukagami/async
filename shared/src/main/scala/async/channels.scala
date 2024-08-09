@@ -226,11 +226,12 @@ object Channel:
   private[async] type Res[T] = Either[Closed, T]
 
   private[async] abstract class Impl[T] extends Channel[T]:
+   impl: Impl[T]^ =>
     protected type ReadResult = Res[T]
     protected type SendResult = Res[Unit]
 
     var isClosed = false
-    val cells = CellBuf()
+    val cells: CellBuf[caps.CapSet^{impl}] = CellBuf[caps.CapSet^{impl}]()
     // Poll a reader, returning false if it should be put into queue
     def pollRead(r: Reader^): Boolean
     // Poll a reader, returning false if it should be put into queue
@@ -242,11 +243,13 @@ object Channel:
         true
       else false
 
-    override val readSource: Source[ReadResult] = new Source {
+    val readSource: Source[Res[T]] = source()
+    class source extends Source[Res[T]] {
+     self: source^{impl} =>
       override def poll(k: Reader^): Boolean = pollRead(k)
-      override def onComplete(k: Reader^): Unit = Impl.this.synchronized:
+      override def onComplete(k: Reader^{this}): Unit = Impl.this.synchronized:
         if !pollRead(k) then cells.addReader(k)
-      override def dropListener(k: Reader^): Unit = Impl.this.synchronized:
+      override def dropListener(k: Reader^{this}): Unit = Impl.this.synchronized:
         if !isClosed then cells.dropReader(k)
     }
     override final def sendSource(x: T): Source[SendResult] = CanSend(x)
@@ -266,24 +269,22 @@ object Channel:
     // cancelling a send of a given item might in fact cancel that of an equal one.
     protected final class CanSend(val item: T) extends Source[SendResult] {
       override def poll(k: Listener[SendResult]^): Boolean = pollSend(this, k)
-      override def onComplete(k: Listener[SendResult]^): Unit = Impl.this.synchronized:
+      override def onComplete(k: Listener[SendResult]^{this}): Unit = Impl.this.synchronized:
         if !pollSend(this, k) then cells.addSender(this, k)
-      override def dropListener(k: Listener[SendResult]^): Unit = Impl.this.synchronized:
+      override def dropListener(k: Listener[SendResult]^{this}): Unit = Impl.this.synchronized:
         if !isClosed then cells.dropSender(this, k)
     }
 
     /** CellBuf is a queue of cells, which consists of a sleeping sender or reader. The queue always guarantees that
       * there are *only* all readers or all senders. It must be externally synchronized.
       */
-    private[async] class CellBuf():
-      import caps.unsafe.unsafeAssumePure // very unsafe WIP
-
-      type Cell = Reader | (CanSend, Sender)
+    private[async] class CellBuf[Cap^]():
+      type Cell = Reader^{Cap^} | (CanSend, Sender^{Cap^})
       // reader == 0 || sender == 0 always
       private var reader = 0
       private var sender = 0
 
-      private val pending = mutable.Queue[Cell]()
+      private val pending: mutable.Queue[Cell] = mutable.Queue[Cell]()
 
       /* Boring push/pop methods */
 
@@ -298,15 +299,15 @@ object Channel:
       def dequeue() =
         pending.dequeue()
         if reader > 0 then reader -= 1 else sender -= 1
-      def addReader(r: Reader^): this.type =
+      def addReader(r: Reader^{Cap^}): this.type =
         require(sender == 0)
         reader += 1
-        pending.enqueue(r.unsafeAssumePure)
+        pending.enqueue(r)
         this
-      def addSender(src: CanSend, s: Sender^): this.type =
+      def addSender(src: CanSend, s: Sender^{Cap^}): this.type =
         require(reader == 0)
         sender += 1
-        pending.enqueue((src, s.unsafeAssumePure))
+        pending.enqueue((src, s))
         this
       def dropReader(r: Reader^): this.type =
         if reader > 0 then if pending.removeFirst(_ == r).isDefined then reader -= 1
