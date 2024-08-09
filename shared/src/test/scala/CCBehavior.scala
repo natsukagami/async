@@ -3,6 +3,7 @@ import language.experimental.captureChecking
 import gears.async.AsyncOperations.*
 import gears.async.default.given
 import gears.async.{Async, AsyncSupport, Future, uninterruptible}
+import gears.async.given
 
 import java.util.concurrent.CancellationException
 import scala.annotation.capability
@@ -33,32 +34,32 @@ class CaptureCheckingBehavior extends munit.FunSuite:
       def good1[T, E, Cap^](using caps.Contains[Cap, ac.type])(@unbox frs: List[Future[Result[T, E], Cap]^]): Future[Result[List[T], E], caps.CapSet^{Cap^, ac}]^{frs*, ac} =
         Future: fut ?=>
           Result: ret ?=>
-            frs.map(_.await.ok)
+            frs.map(_.await(using Async.widen(ac, fut)).ok)
 
       def good2[T, E, Cap^](using caps.Contains[Cap, ac.type])(@unbox rf: Result[Future[T, Cap]^, E]): Future[Result[T, E], caps.CapSet^{Cap^, ac}]^{rf*, ac} =
-        Future:
+        Future: fut ?=>
           Result:
-            rf.ok.await // OK, Future argument has type Result[T]
+            rf.ok.asInstanceOf[Future[T, caps.CapSet^{fut}]].await // OK, Future argument has type Result[T]
 
-      def useless4[T, E, Cap^](fr: Future[Result[T, E], Cap]^) =
-        fr.await.map(Future(_))
+      def useless4[T, E, Cap^](using caps.Contains[Cap, ac.type])(fr: Future[Result[T, E], Cap]^) =
+        fr.await(using Async.widen(ac, ac)).map(Future(_))
   }
 
   test("very bad") {
     Async.blocking: async ?=>
-      def fail3[T, E, Cap^](fr: Future[Result[T, E], Cap]^) =
+      def fail3[T, E, Cap^](using caps.Contains[Cap, async.type])(fr: Future[Result[T, E], Cap]^) =
         Result: label ?=>
           Future: fut ?=>
-            fr.await.ok // error, escaping label from Result
+            fr.asInstanceOf[Future[Result[T, E], caps.CapSet^{fut}]].await.ok // error, escaping label from Result
 
       val fut = Future(Left(5))
       val res = fail3(fut)
-      println(res.right.get.asInstanceOf[Future[Any, ?]].awaitResult)
+      println(res.right.get.asInstanceOf[Future[Any, caps.CapSet^{async}]].awaitResult)
   }
 
   test("collectors"):
     case class C()
-    def consume(c: C^)(using Async): Int = ???
+    def consume(c: C^)(using Async^): Int = ???
     Async.blocking: spawn ?=>
       val col =
         val c : C^ = C()

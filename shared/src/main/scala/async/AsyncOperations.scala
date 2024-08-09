@@ -28,13 +28,13 @@ object AsyncOperations:
     * @param duration
     *   The duration to suspend. Must be positive.
     */
-  inline def sleep(duration: FiniteDuration)(using AsyncOperations, Async): Unit =
+  inline def sleep(duration: FiniteDuration)(using AsyncOperations, Async^): Unit =
     sleep(duration.toMillis)
 
 /** Runs `op` with a timeout. When the timeout occurs, `op` is cancelled through the given [[Async]] context, and
   * [[java.util.concurrent.TimeoutException]] is thrown.
   */
-def withTimeout[T](timeout: FiniteDuration)(op: Async ?=> T)(using AsyncOperations, Async): T =
+def withTimeout[T](using _ao: AsyncOperations, ac: Async^)(timeout: FiniteDuration)(op: Async^{ac} ?=> T): T =
   Async.group: spawn ?=>
     Async.select(
       Future(op).handle(_.get),
@@ -45,7 +45,7 @@ def withTimeout[T](timeout: FiniteDuration)(op: Async ?=> T)(using AsyncOperatio
 /** Runs `op` with a timeout. When the timeout occurs, `op` is cancelled through the given [[Async]] context, and
   * [[None]] is returned.
   */
-def withTimeoutOption[T](timeout: FiniteDuration)(op: Async ?=> T)(using AsyncOperations, Async): Option[T] =
+def withTimeoutOption[T](using _ao: AsyncOperations, ac: Async^)(timeout: FiniteDuration)(op: Async^{ac} ?=> T): Option[T] =
   Async.group:
     Async.select(
       Future(op).handle(v => Some(v.get)),

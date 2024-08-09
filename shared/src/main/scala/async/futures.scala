@@ -549,7 +549,7 @@ end Task
   * In other words, `body` is never notified of the cancellation of the `ac` context; but `uninterruptible` would still
   * throw a [[CancellationException]] ''after `body` finishes running'' if `ac` was cancelled.
   */
-def uninterruptible[T](body: Async ?=> T)(using ac: Async): T =
+def uninterruptible[T](using ac: Async^)(body: Async^{ac} ?=> T): T =
   val tracker = Cancellable.Tracking().link()
 
   val r =

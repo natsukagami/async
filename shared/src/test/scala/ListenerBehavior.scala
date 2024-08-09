@@ -271,7 +271,7 @@ private class NumberedTestListener private (sleep: AtomicBoolean, fail: Boolean,
       if sleep.getAndSet(false) then
         Async.blocking:
           sleepPromise.complete(Success(()))
-          waiter.get.await
+          waiter.get.await(using caps.unsafe.unsafeAssumePure(summon[Async]))
       if fail then false
       else true
     def release() = ()

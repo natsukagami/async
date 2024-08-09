@@ -11,6 +11,7 @@ import java.util.concurrent.locks.ReentrantLock
 import scala.collection.mutable
 import scala.util.boundary
 import scala.annotation.targetName
+import scala.languageFeature.implicitConversions
 
 /** The async context: provides the capability to asynchronously [[Async.await await]] for [[Async.Source Source]]s, and
   * defines a scope for structured concurrency through a [[CompletionGroup]].
@@ -49,6 +50,8 @@ trait Async(using val support: AsyncSupport, val scheduler: support.Scheduler):
   def withGroup(group: CompletionGroup): Async^
 
 object Async:
+  inline def widen[Cap^](ac: Async^, ac2: Async^{ac})(using caps.Contains[Cap, ac.type]): Async^{Cap^} = ac2.asInstanceOf
+
   private class Blocking(val group: CompletionGroup)(using support: AsyncSupport, scheduler: support.Scheduler)
       extends Async(using support, scheduler), caps.Capability:
     private val lock = ReentrantLock()
@@ -171,7 +174,7 @@ object Async:
       *
       * This is an utility method for direct waiting with `Async`, instead of going through listeners.
       */
-    final def awaitResult(using ac: Async^)(using caps.Contains[Cap, ac.type]): T = ac.await[T, Cap](this)
+    final def awaitResult(using ac: Async^{Cap^}): T = ac.await[T, Cap](this)
   end Source
 
   // an opaque identity for symbols
@@ -189,14 +192,14 @@ object Async:
       *   [[Source!.awaitResult awaitResult]] for non-unwrapping await.
       */
     @targetName("awaitTry")
-    def await(using ac: Async^)(using caps.Contains[Cap, ac.type]): T = src.awaitResult.get
+    def await(using ac: Async^{Cap^}): T = src.awaitResult.get
   extension [E, T, Cap^](src: Source[Either[E, T], Cap]^)
     /** Waits for an item to arrive from the source, then automatically unwraps it. Suspends until an item returns.
       * @see
       *   [[Source!.awaitResult awaitResult]] for non-unwrapping await.
       */
     @targetName("awaitEither")
-    def await(using ac: Async^)(using caps.Contains[Cap, ac.type]) = src.awaitResult.right.get
+    def await(using ac: Async^{Cap^}) = src.awaitResult.right.get
 
   /** An original source has a standard definition of [[Source.onComplete onComplete]] in terms of [[Source.poll poll]]
     * and [[OriginalSource.addListener addListener]].
@@ -416,7 +419,7 @@ object Async:
     * )
     *   }}}
     */
-  def select[T, Cap^](@caps.unbox cases: (SelectCase[T, Cap]^)*)(using ac: Async^)(using caps.Contains[Cap, ac.type]) =
+  def select[T, Cap^](@caps.unbox cases: (SelectCase[T, Cap]^)*)(using ac: Async^{Cap^}) =
     val (input, which) = raceWithOrigin(cases.map(_.src)).awaitResult
     val sc = cases.find(_.src.symbol == which).get
     sc(input.asInstanceOf[sc.Src])

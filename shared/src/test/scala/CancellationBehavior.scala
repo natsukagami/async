@@ -41,7 +41,7 @@ class CancellationBehavior extends munit.FunSuite:
             state = State.Running
           case _ => fail(s"initializing failed, state is $state")
 
-  private def startFuture(info: Info, body: Async ?=> Unit = {})(using a: Async, s: Async.Spawn)(using
+  private def startFuture(using a: Async^, s: Async.Spawn^)(info: Info, body: Async^{s} ?=> Unit = {})(using
       a.type =:= s.type
   ) =
     val f = Future:
