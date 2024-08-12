@@ -124,6 +124,7 @@ object Async:
     *   An example of an ephemeral source is [[gears.async.Channel]].
     */
   trait Source[+T]:
+    type Cap >: caps.CapSet^{this} <: caps.CapSet^
     /** The unique symbol representing the current source. */
     val symbol: SourceSymbol[T] = SourceSymbol.next
     /** Checks whether data is available at present and pass it to `k` if so. Calls to `poll` are always synchronous and
@@ -151,7 +152,7 @@ object Async:
       * Note that `k`'s methods will be executed on the same thread as the [[Source]], usually in sequence. It is hence
       * important that the listener itself does not perform expensive operations.
       */
-    def onComplete(k: Listener[T]^{this}): Unit
+    def onComplete(k: Listener[T]^{Cap^}): Unit
 
     /** Signal that listener `k` is dead (i.e. will always fail to acquire locks from now on), and should be removed
       * from `onComplete` queues.
@@ -159,7 +160,7 @@ object Async:
       * This permits original, (i.e. non-derived) sources like futures or channels to drop the listener from their
       * waiting sets.
       */
-    def dropListener(k: Listener[T]^{this}): Unit
+    def dropListener(k: Listener[T]^{Cap^}): Unit
 
     /** Installs a listener that is allowed to capture. The listener will be dropped once `body` returns. */
     final def withListener[U](k: Listener[T]^)(body: => U): U =
@@ -216,9 +217,9 @@ object Async:
     */
   abstract class OriginalSource[+T] extends Source[T]:
     /** Add `k` to the listener set of this source. */
-    protected def addListener(k: Listener[T]): Unit
+    protected def addListener(k: Listener[T]^{Cap^}): Unit
 
-    def onComplete(k: Listener[T]): Unit = synchronized:
+    def onComplete(k: Listener[T]^{Cap^}): Unit = synchronized:
       if !poll(k) then addListener(k)
 
   end OriginalSource
@@ -235,6 +236,7 @@ object Async:
       val q = java.util.concurrent.ConcurrentLinkedQueue[T]()
       q.addAll(values.asJavaCollection)
       new Source[T]:
+        type Cap = caps.CapSet^{this}
         override def poll(k: Listener[T]^): Boolean =
           if q.isEmpty() then false
           else if !k.acquireLock() then true
@@ -251,7 +253,7 @@ object Async:
         override def dropListener(k: Listener[T]^{this}): Unit = ()
     end values
 
-  extension [T](src: Source[T]^)
+  extension [T, C^](src: (Source[T] { type Cap = C })^{C^})
     /** Create a new source that requires the original source to run the given transformation function on every value
       * received.
       *
@@ -262,10 +264,11 @@ object Async:
       *   the transformation function to be run on every value. `f` is run *before* the item is passed to the
       *   [[Listener]].
       */
-    def transformValuesWith[U](f: T -> U): Source[U]^{src} =
+    def transformValuesWith[U](f: (T -> U)^{C^}): Source[U]^{src, f} =
       new Source[U]:
+        type Cap = caps.CapSet^{C^, this}
         val selfSrc = this
-        def transform(k: Listener[U]^): Listener.ForwardingListener[T]^{k}  =
+        def transform(k: Listener[U]^): Listener.ForwardingListener[T]^{k, C^}  =
           new Listener.ForwardingListener[T](selfSrc, k):
             val lock = k.lock
             def complete(data: T, source: SourceSymbol[T]) =
@@ -273,9 +276,9 @@ object Async:
 
         def poll(k: Listener[U]^): Boolean =
           src.poll(transform(k))
-        def onComplete(k: Listener[U]^{this}): Unit =
+        def onComplete(k: Listener[U]^{C^}): Unit =
           src.onComplete(transform(k))
-        def dropListener(k: Listener[U]^{this}): Unit =
+        def dropListener(k: Listener[U]^{src, f, this}): Unit =
           src.dropListener(transform(k))
 
   /** Creates a source that "races" a list of sources.

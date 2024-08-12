@@ -273,7 +273,7 @@ object Future:
     def orWithCancel(f2: Future[T]^): Future[T]^{f1, f2} = orImpl(true)(f2)
 
     def orImpl(withCancel: Boolean)(f2: Future[T]^): Future[T]^{f1, f2} =
-      val f = Future.withResolver[T]: r =>
+      val f: Future[T]^{f1, f2} = Future.withResolver[T]: r =>
         var done = false
         var failures = 0
         val listener = Listener[Try[T]]: (data, _) =>
@@ -292,9 +292,10 @@ object Future:
         f2.onComplete(listener)
       if withCancel then
         f.onComplete:
-          Listener: (_, _) =>
+          val l: Listener[Any]^{f} = Listener: (_, _) =>
             f1.cancel()
             f2.cancel()
+          l
       f
 
 
