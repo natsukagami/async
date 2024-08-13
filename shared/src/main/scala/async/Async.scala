@@ -381,11 +381,11 @@ object Async:
     */
   trait SelectCase[+T, Cap^]:
     type Src
-    val src: Source[Src, Cap]^{Cap^}
+    val src: Source[Src, Cap]^
     val f: Src => T
     inline final def apply(input: Src) = f(input)
 
-  extension [T, Cap^](_src: Source[T, Cap]^{Cap^})
+  extension [T, Cap^](_src: Source[T, Cap]^)
     /** Attach a handler to `src`, creating a [[SelectCase]].
       * @see
       *   [[Async$.select Async.select]] where [[SelectCase]] is used.
@@ -422,12 +422,12 @@ object Async:
     * )
     *   }}}
     */
-  def select[T, Cap^](@caps.unbox cases: Seq[SelectCase[T, Cap]^{Cap^}])(using ac: Async^{Cap^}): T =
+  def select[T, Cap^](@caps.unbox cases: Seq[SelectCase[T, Cap]^])(using ac: Async^{Cap^}): T =
     val (input, which) = raceWithOrigin(cases.map(_.src)).awaitResult
     val sc = cases.find(_.src.symbol == which).get
     sc(input.asInstanceOf[sc.Src])
-  def select[T, Cap^](c1: SelectCase[T, Cap^])(using ac: Async^{Cap^}): T = select(Seq(c1))
-  def select[T, Cap^](c1: SelectCase[T, Cap^], c2: SelectCase[T, Cap^])(using ac: Async^{Cap^}): T = select(Seq(c1, c2))
+  def select[T, Cap^](c1: SelectCase[T, Cap]^)(using ac: Async^{Cap^}): T = select(Seq(c1))
+  def select[T, Cap^](c1: SelectCase[T, Cap]^, c2: SelectCase[T, Cap]^)(using ac: Async^{Cap^}): T = select(Seq(c1, c2))
 
   /** Race two sources, wrapping them respectively in [[Left]] and [[Right]] cases.
     * @return
