@@ -422,7 +422,7 @@ object ChannelMultiplexer:
             shouldTerminate = true
           case Right(Message.Refresh) => ()
 
-        Async.select((infoCase +: pubCases)*)
+        Async.select(infoCase +: pubCases)
       }
     }
 

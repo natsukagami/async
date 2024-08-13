@@ -272,16 +272,17 @@ object Future:
     * @see
     *   [[Future.withResolver]] to create a passive [[Future]] from callback-style asynchronous calls.
     */
-  trait Promise[T, Cap^] extends Future[T, Cap]:
-    inline def asFuture: Future[T, Cap] = this
+  trait Promise[T, Cap^]:
+    def asFuture: Future[T, Cap]
 
     /** Define the result value of `future`. */
     def complete(result: Try[T]): Unit
 
   object Promise:
     /** Create a new, unresolved [[Promise]]. */
-    def apply[T, Cap^](): Promise[T, Cap] =
+    def apply[T, Cap^](): Promise[T, Cap]^{Cap^} =
       new CoreFuture[T, Cap] with Promise[T, Cap]:
+        def asFuture: Future[T, Cap] = this
         override def cancel(): Unit =
           if setCancelled() then complete(Failure(new CancellationException()))
 
@@ -321,14 +322,16 @@ object Future:
     *
     * If the external operation supports cancellation, the body can register one handler using [[Resolver.onCancel]].
     */
-  def withResolver[T, Cap^](body: Resolver[T] => Unit): Future[T, Cap] =
-    val future = new CoreFuture[T, Cap] with Resolver[T] with Promise[T, Cap]:
+  def withResolver[T, C^](body: Resolver[T] => Unit): Future[T, C] =
+    val future = new CoreFuture[T, C] with Resolver[T] with Promise[T, C]:
       @volatile var cancelHandle: () -> Unit = () => rejectAsCancelled()
       override def onCancel(handler: () => Unit): Unit = cancelHandle = caps.unsafe.unsafeAssumePure(handler)
       override def complete(result: Try[T]): Unit = super.complete(result)
 
       override def cancel(): Unit =
         if setCancelled() then cancelHandle()
+
+      def asFuture: Future[T, C] = this
     end future
     body(future: Resolver[T])
     future

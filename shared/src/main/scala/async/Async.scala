@@ -1,6 +1,7 @@
 package gears.async
 
 import language.experimental.captureChecking
+import caps.unbox
 
 import gears.async.Listener.NumberedLock
 import gears.async.Listener.withLock
@@ -282,19 +283,20 @@ object Async:
     * @see
     *   [[Async$.select Async.select]] for a convenient syntax to race sources and awaiting them with [[Async]].
     */
-  def race[T, Cap^](@caps.unbox sources: Seq[Source[T, Cap]^{Cap^}]): Source[T, Cap]^{Cap^} = raceImpl((v: T, _: SourceSymbol[T]) => v)(sources)
-  def race[T, Cap^](source: Source[T, Cap]^{Cap^}): Source[T, Cap]^{Cap^} = race(Seq(source))
-  def race[T, Cap^](s1: Source[T, Cap]^{Cap^}, s2: Source[T, Cap]^{Cap^}): Source[T, Cap]^{Cap^} = race(Seq(s1, s2))
+  def race[T, Cap^](@caps.unbox sources: Seq[Source[T, Cap]^]): Source[T, Cap]^{sources*} = raceImpl((v: T, _: SourceSymbol[T]) => v)(sources)
+  def race[T, Cap^](source: Source[T, Cap]^): Source[T, Cap]^{source} = race(Seq(source))
+  def race[T, Cap^](s1: Source[T, Cap]^, s2: Source[T, Cap]^): Source[T, Cap]^{s1, s2} = race(Seq(s1, s2))
 
   /** Like [[race]], but the returned value includes a reference to the upstream source that the item came from.
     * @see
     *   [[Async$.select Async.select]] for a convenient syntax to race sources and awaiting them with [[Async]].
     */
-  def raceWithOrigin[T, Cap^](@caps.unbox sources: Seq[Source[T, Cap]^{Cap^}]): Source[(T, SourceSymbol[T]), Cap]^{sources*} =
+  def raceWithOrigin[T, Cap^](@caps.unbox sources: Seq[Source[T, Cap]^]): Source[(T, SourceSymbol[T]), Cap]^{sources*} =
     raceImpl((v: T, src: SourceSymbol[T]) => (v, src))(sources)
 
   /** Pass first result from any of `sources` to the continuation */
-  private def raceImpl[T, U, Cap^](map: (U, SourceSymbol[U]) -> T)(@caps.unbox sources: Seq[Source[U, Cap]^{Cap^}]): Source[T, Cap]^{sources*} =
+  private def raceImpl[T, U, Cap^](map: (U, SourceSymbol[U]) -> T)(@caps.unbox sources: Seq[Source[U, Cap]^]): Source[T, Cap]^{sources*} =
+    import caps.unsafe.unsafeAssumePure
     new Source[T, Cap]:
       val selfSrc = this
       def poll(k: Listener[T]^{Cap^}): Boolean =
@@ -311,10 +313,11 @@ object Async:
 
         found
 
-      def dropAll(l: Listener[U]^{Cap^}) = sources.foreach(_.dropListener(l))
+      def dropAll(l: Listener[U]^{sources*, Cap^}) =
+        sources.foreach(_.dropListener(l.unsafeAssumePure))
 
       def onComplete(k: Listener[T]^{Cap^}): Unit =
-        val listener: Listener[U]^{Cap^} = new Listener.ForwardingListener[U](this, k) {
+        val listener: Listener[U]^{Cap^} = caps.unsafe.unsafeAssumePure(new Listener.ForwardingListener[U](this, k) {
           val self = this
           inline def lockIsOurs = k.lock == null
           val lock =
@@ -357,15 +360,15 @@ object Async:
           def complete(item: U, src: SourceSymbol[U]) =
             found = true
             if lockIsOurs then lock.release()
-            sources.foreach(s => if s.symbol != src then s.dropListener(self))
+            sources.foreach(s => if s.symbol != src then s.dropListener(caps.unsafe.unsafeAssumePure(self)))
             k.complete(map(item, src), selfSrc)
-        } // end listener
+        }) // end listener
 
         sources.foreach(_.onComplete(listener))
 
       def dropListener(k: Listener[T]^{Cap^}): Unit =
         val listener = Listener.ForwardingListener.empty(this, k)
-        sources.foreach(_.dropListener(listener))
+        sources.foreach(_.dropListener(listener.unsafeAssumePure))
 
 
   /** Cases for handling async sources in a [[select]]. [[SelectCase]] can be constructed by extension methods `handle`
@@ -419,10 +422,12 @@ object Async:
     * )
     *   }}}
     */
-  def select[T, Cap^](@caps.unbox cases: (SelectCase[T, Cap]^)*)(using ac: Async^{Cap^}) =
+  def select[T, Cap^](@caps.unbox cases: Seq[SelectCase[T, Cap]^{Cap^}])(using ac: Async^{Cap^}): T =
     val (input, which) = raceWithOrigin(cases.map(_.src)).awaitResult
     val sc = cases.find(_.src.symbol == which).get
     sc(input.asInstanceOf[sc.Src])
+  def select[T, Cap^](c1: SelectCase[T, Cap^])(using ac: Async^{Cap^}): T = select(Seq(c1))
+  def select[T, Cap^](c1: SelectCase[T, Cap^], c2: SelectCase[T, Cap^])(using ac: Async^{Cap^}): T = select(Seq(c1, c2))
 
   /** Race two sources, wrapping them respectively in [[Left]] and [[Right]] cases.
     * @return

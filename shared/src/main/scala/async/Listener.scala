@@ -64,13 +64,20 @@ object Listener:
     * [[Async.Source.dropListener]] these listeners are compared for equality by the hash of the source and the inner
     * listener.
     */
-  abstract case class ForwardingListener[-T](src: Async.Source[?, ?]^, inner: Listener[?]^) extends Listener[T]
+  abstract class ForwardingListener[-T](_src: Async.Source[?, ?]^, _inner: Listener[?]^) extends Listener[T]:
+    import caps.unsafe.unsafeAssumePure
+    val (src, inner) = (_src.unsafeAssumePure, _inner.unsafeAssumePure)
+    override def hashCode(): Int = (src, inner).hashCode()
+    override def equals(that: Any): Boolean = that match
+      case t: ForwardingListener[?] => src == t.src && inner == t.inner
+      case _ => false
 
   object ForwardingListener:
     /** Creates an empty [[ForwardingListener]] for equality comparison. */
-    def empty(src: Async.Source[?, ?]^, inner: Listener[?]^): ForwardingListener[Any]^{src, inner} = new ForwardingListener[Any](src, inner):
-      val lock = null
-      override def complete(data: Any, source: SourceSymbol[Any]) = ???
+    def empty(src: Async.Source[?, ?]^, inner: Listener[?]^): ForwardingListener[Any]^{src, inner} =
+      new ForwardingListener[Any](src, inner):
+        val lock = null
+        override def complete(data: Any, source: SourceSymbol[Any]) = ???
 
   /** A lock required by a listener to be acquired before accepting values. Should there be multiple listeners that
     * needs to be locked at the same time, they should be locked by larger-number-first.

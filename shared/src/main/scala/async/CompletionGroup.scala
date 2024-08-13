@@ -27,7 +27,7 @@ class CompletionGroup extends Cancellable.Tracking:
   private[async] def waitCompletion()(using ac: Async^): Unit =
     synchronized:
       if members.nonEmpty && cancelWait.isEmpty then cancelWait = Some(Promise())
-    cancelWait.foreach(cWait => cWait.asInstanceOf[Promise[Unit, caps.CapSet^{ac}] /* can fix? */].await)
+    cancelWait.foreach(cWait => cWait.asInstanceOf[Promise[Unit, caps.CapSet^{ac}] /* can fix? */].asFuture.await)
     unlink()
 
   /** Add given member to the members set. If the group has already been cancelled, cancels that member immediately. */
