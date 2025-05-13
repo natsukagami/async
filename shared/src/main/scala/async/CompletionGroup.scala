@@ -12,7 +12,7 @@ import Future.Promise
 class CompletionGroup extends Cancellable.Tracking:
   private val members: mutable.Set[Cancellable] = mutable.Set()
   private var canceled: Boolean = false
-  private var cancelWait: Option[Promise[Unit]] = None
+  private var cancelWait: Option[Promise[Unit]^] = None
 
   /** Cancel all members */
   def cancel(): Unit =

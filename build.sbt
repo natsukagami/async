@@ -3,7 +3,7 @@ import org.scalajs.linker.interface.ESVersion
 import sbtcrossproject.CrossPlugin.autoImport.{CrossType, crossProject}
 import scalanative.build._
 
-val scala = "3.7.0"
+val scala = "3.7.2-RC1-bin-SNAPSHOT"
 ThisBuild / scalaVersion := scala
 
 publish / skip := true
@@ -21,7 +21,7 @@ inThisBuild(
 )
 
 lazy val root =
-  crossProject(JSPlatform, JVMPlatform, NativePlatform)
+  crossProject(JSPlatform, JVMPlatform)
     .crossType(CrossType.Full)
     .in(file("."))
     .settings(
@@ -38,13 +38,13 @@ lazy val root =
         javaOptions += "--version 21"
       )
     )
-    .nativeSettings(
-      Seq(
-        nativeConfig ~= { c =>
-          c.withMultithreading(true)
-        }
-      )
-    )
+    // .nativeSettings(
+    //   Seq(
+    //     nativeConfig ~= { c =>
+    //       c.withMultithreading(true)
+    //     }
+    //   )
+    // )
     .jsSettings(
       Seq(
         // Emit ES modules with the Wasm backend

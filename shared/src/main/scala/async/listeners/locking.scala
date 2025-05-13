@@ -12,7 +12,7 @@ import Listener.ListenerLock
 /** Two listeners being locked at the same time, while having the same [[Listener.ListenerLock.selfNumber lock number]].
   */
 case class ConflictingLocksException(
-    listeners: (Listener[?]^, Listener[?]^)
+    listeners: List[Listener[?]^]
 ) extends Exception
 
 /** Attempt to lock both listeners belonging to possibly different sources at the same time. Lock orders are respected
@@ -42,7 +42,7 @@ def lockBoth[T, U](
       lu
     else true
 
-  if lockT.selfNumber == lockU.selfNumber then throw ConflictingLocksException((lt, lu))
+  if lockT.selfNumber == lockU.selfNumber then throw ConflictingLocksException(List(lt, lu))
   else if lockT.selfNumber > lockU.selfNumber then doLock(lt, lu)(lockT, lockU)
   else doLock(lu, lt)(lockU, lockT)
 end lockBoth

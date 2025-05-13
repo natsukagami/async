@@ -19,10 +19,10 @@ trait SuspendSupport:
   type Suspension[-T, +R] <: gears.async.Suspension[T, R]
 
   /** Set the suspension marker as the body's caller, and execute `body`. */
-  def boundary[R, Cap^](body: Label[R, Cap]^ ?->{Cap^} R): R
+  def boundary[R, Cap^](body: Label[R, Cap]^ ?->{Cap} R): R
 
   /** Should return immediately if resume is called from within body */
-  def suspend[T, R, Cap^](body: Suspension[T, R]^{Cap^} ->{Cap^} R)(using Label[R, Cap]^): T
+  def suspend[T, R, Cap^](body: Suspension[T, R]^{Cap} ->{Cap} R)(using Label[R, Cap]^): T
 
 /** Extends [[SuspendSupport]] with "asynchronous" boundary/resume functions, in the presence of a [[Scheduler]] */
 trait AsyncSupport extends SuspendSupport:

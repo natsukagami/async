@@ -13,6 +13,7 @@ import scala.util.control.NonFatal
 import scala.util.{Failure, Success, Try}
 import gears.async.Async.SourceSymbol
 import scala.annotation.meta.companionMethod
+import caps.cap
 
 /** Futures are [[Async.Source Source]]s that has the following properties:
   *   - They represent a single value: Once resolved, [[Async.await await]]-ing on a [[Future]] should always return the
@@ -42,7 +43,7 @@ import scala.annotation.meta.companionMethod
   *   [[ScalaConverters.asGears]] and [[ScalaConverters.asScala]] for converting between Scala futures and Gears
   *   futures.
   */
-trait Future[+T] extends Async.OriginalSource[Try[T]], Cancellable
+trait Future[+T] extends Async.OriginalSource[Try[T]], Cancellable, caps.Mutable
 
 object Future:
   /** A future that is completed explicitly by calling its `complete` method. There are three public implementations
@@ -127,7 +128,7 @@ object Future:
       if cancelRequest.get() then throw new CancellationException()
 
     private class FutureAsync[Cap^](val group: CompletionGroup)(using label: ac.support.Label[Unit, Cap]^)
-        extends Async(using ac.support, ac.scheduler):
+        extends Async(using ac.support, ac.scheduler), caps.Mutable:
 
       private class AwaitListener[T](@annotation.constructorOnly src: Async.Source[T]^)
           extends Listener[T],
@@ -139,11 +140,11 @@ object Future:
         val pureSrc= caps.unsafe.unsafeAssumePure(src) // we only use it for onComplete / dropListener
 
         // guarded by lock; null = before apply or after resume
-        private var sus: ac.support.Suspension[T | Null, Unit]^{Cap^} | Null = null
+        private var sus: ac.support.Suspension[T | Null, Unit]^{Cap} | Null = null
         @volatile private var cancelRequest = false // if cancellation request received, checked after releasing lock
 
         // == Function, to be passed to suspend. Call this only once and before any other usage of this class.
-        def apply(sus: ac.support.Suspension[T | Null, Unit]^{Cap^}): Unit =
+        def apply(sus: ac.support.Suspension[T | Null, Unit]^{Cap}): Unit =
           this.sus = sus
           this.link(group) // may resume + remove listener immediately
           if !cancelled then pureSrc.onComplete(this)
@@ -215,7 +216,7 @@ object Future:
         src
           .poll()
           .getOrElse:
-            val listener: AwaitListener[U]^{Cap^} = AwaitListener[U](src)
+            val listener: AwaitListener[U]^{Cap} = AwaitListener[U](src)
             val res = ac.support.suspend(susp => listener(susp)) // linking and src.onComplete happen in listener
             listener.unlink()
             if listener.cancelled then throw CancellationException()
@@ -266,11 +267,11 @@ object Future:
   /** A future that immediately rejects with the given exception. Similar to `Future.now(Failure(exception))`. */
   inline def rejected(exception: Throwable): Future[Nothing] = now(Failure(exception))
 
-  extension [T](f1: Future[T]^)
+  extension [T](f1: Future[T]^{cap.rd})
     /** Parallel composition of two futures. If both futures succeed, succeed with their values in a pair. Otherwise,
       * fail with the failure that was returned first.
       */
-    def zip[U](f2: Future[U]^): Future[(T, U)]^{f1, f2} =
+    def zip[U](f2: Future[U]^{cap.rd}): Future[(T, U)]^{f1, f2} =
       Future.withResolver[(T, U), caps.CapSet^{f1, f2}]: r =>
         Async
           .either(f1, f2)
@@ -303,14 +304,14 @@ object Future:
       * @see
       *   [[orWithCancel]] for an alternative version where the slower future is cancelled.
       */
-    def or(f2: Future[T]^): Future[T]^{f1, f2} = orImpl(false)(f2)
+    def or(f2: Future[T]^{cap.rd}): Future[T]^{f1, f2} = orImpl(false)(f2)
 
     /** Like `or` but the slower future is cancelled. If either task succeeds, succeed with the success that was
       * returned first and the other is cancelled. Otherwise, fail with the failure that was returned last.
       */
-    def orWithCancel(f2: Future[T]^): Future[T]^{f1, f2} = orImpl(true)(f2)
+    def orWithCancel(f2: Future[T]^{cap.rd}): Future[T]^{f1, f2} = orImpl(true)(f2)
 
-    inline def orImpl(inline withCancel: Boolean)(f2: Future[T]^): Future[T]^{f1, f2} = Future.withResolver[T, caps.CapSet^{f1, f2}]: r =>
+    inline def orImpl(inline withCancel: Boolean)(f2: Future[T]^{cap.rd}): Future[T]^{f1, f2} = Future.withResolver[T, caps.CapSet^{f1, f2}]: r =>
       Async
         .raceWithOrigin(f1, f2)
         .onComplete(Listener { case ((v, which), _) =>
@@ -338,7 +339,7 @@ object Future:
 
   object Promise:
     /** Create a new, unresolved [[Promise]]. */
-    def apply[T](): Promise[T] =
+    def apply[T](): Promise[T]^ =
       new CoreFuture[T] with Promise[T]:
         override def cancel(): Unit =
           if setCancelled() then complete(Failure(new CancellationException()))
@@ -369,7 +370,7 @@ object Future:
       * may be used. The handler should eventually complete the Future using one of complete/resolve/reject*. The
       * default handler is set up to [[rejectAsCancelled]] immediately.
       */
-    def onCancel(handler: (() -> Unit)^{Cap^}): Unit
+    def onCancel(handler: (() -> Unit)^{Cap}): Unit
   end Resolver
 
   /** Create a promise that may be completed asynchronously using external means.
@@ -379,11 +380,11 @@ object Future:
     *
     * If the external operation supports cancellation, the body can register one handler using [[Resolver.onCancel]].
     */
-  def withResolver[T, Cap^](body: Resolver[T, Cap]^{Cap^} => Unit): Future[T]^{Cap^} =
-    val future: (CoreFuture[T] & Resolver[T, Cap] & Promise[T])^{Cap^} = new CoreFuture[T] with Resolver[T, Cap] with Promise[T]:
+  def withResolver[T, Cap^](body: Resolver[T, Cap]^{Cap} => Unit): Future[T]^{Cap} =
+    val future: (CoreFuture[T] & Resolver[T, Cap] & Promise[T])^{Cap} = new CoreFuture[T] with Resolver[T, Cap] with Promise[T]:
       // TODO: undo this once bug is fixed
       @volatile var cancelHandle: (() -> Unit) = () => rejectAsCancelled()
-      override def onCancel(handler: (() -> Unit)^{Cap^}): Unit =
+      override def onCancel(handler: (() -> Unit)^{Cap}): Unit =
         cancelHandle = /* TODO remove */ caps.unsafe.unsafeAssumePure(handler)
       override def complete(result: Try[T]): Unit = super.complete(result)
 
@@ -395,12 +396,12 @@ object Future:
   end withResolver
 
   sealed abstract class BaseCollector[T, Cap^]():
-    private val ch = UnboundedChannel[Future[T]^{Cap^}]()
+    private val ch = UnboundedChannel[Future[T]^{Cap}]()
 
-    private val futMap = mutable.Map[SourceSymbol[Try[T]], Future[T]^{Cap^}]()
+    private val futMap = mutable.Map[SourceSymbol[Try[T]], Future[T]^{Cap}]()
 
     /** Output channels of all finished futures. */
-    final def results: ReadableChannel[Future[T]^{Cap^}] = ch.asReadable
+    final def results: ReadableChannel[Future[T]^{Cap}] = ch.asReadable
 
     private val listener = Listener((_, fut) =>
       // safe, as we only attach this listener to Future[T]
@@ -409,7 +410,7 @@ object Future:
       ch.sendImmediately(future)
     )
 
-    protected final def addFuture(future: Future[T]^{Cap^}) =
+    protected final def addFuture(future: Future[T]^{Cap}) =
       futMap.synchronized { futMap += (future.symbol -> future) }
       future.onComplete(listener)
   end BaseCollector
@@ -435,11 +436,11 @@ object Future:
   end Collector
 
   /** Like [[Collector]], but exposes the ability to add futures after creation. */
-  class MutableCollector[T, Cap^](futures: (Future[T]^{Cap^})*) extends BaseCollector[T, Cap]:
+  class MutableCollector[T, Cap^](futures: (Future[T]^{Cap})*) extends BaseCollector[T, Cap]:
     futures.foreach(addFuture)
     /** Add a new [[Future]] into the collector. */
-    inline def add(future: Future[T]^{Cap^}) = addFuture(future)
-    inline def +=(future: Future[T]^{Cap^}) = add(future)
+    inline def add(future: Future[T]^{Cap}) = addFuture(future)
+    inline def +=(future: Future[T]^{Cap}) = add(future)
 
   extension [T](@caps.use fs: Seq[Future[T]^])
     /** `.await` for all futures in the sequence, returns the results in a sequence, or throws if any futures fail. */
