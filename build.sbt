@@ -30,6 +30,7 @@ lazy val root =
         versionScheme := Some("early-semver"),
         libraryDependencies += "org.scala-lang" %% "scala2-library-cc-tasty-experimental" % scala,
         libraryDependencies += "org.scalameta" %%% "munit" % "1.1.1" % Test,
+        // scalacOptions ++= Seq("-Ycc-debug"),
         testFrameworks += new TestFramework("munit.Framework")
       )
     )

@@ -1,5 +1,8 @@
 package PosixLikeIO.examples
 
+import language.experimental.captureChecking
+import caps.cap
+
 import gears.async.AsyncOperations.*
 import gears.async.default.given
 import gears.async.{Async, Future}
@@ -22,7 +25,7 @@ import PosixLikeIO.{PIOHelper, SocketUDP}
         serverSocket.send(ByteBuffer.wrap(responseMessage), got.getAddress.toString.substring(1), got.getPort)
         sleep(50)
 
-    def client(value: Int): Future[Unit] =
+    def client(value: Int): Future[Unit]^{cap.rd} =
       Future:
         PIOHelper.withSocketUDP(): clientSocket =>
           val data: Array[Byte] = value.toString.getBytes

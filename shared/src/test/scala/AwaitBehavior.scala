@@ -1,3 +1,5 @@
+import language.experimental.captureChecking
+
 import gears.async.*
 import gears.async.default.given
 

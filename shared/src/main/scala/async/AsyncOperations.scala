@@ -6,6 +6,8 @@ import gears.async.AsyncOperations.sleep
 
 import java.util.concurrent.TimeoutException
 import scala.concurrent.duration.FiniteDuration
+import caps.cap
+import caps.unsafe.unsafeAssumePure
 
 /** Defines fundamental operations that require the support of the scheduler. This is commonly provided alongside with
   * the given implementation of [[Scheduler]].
@@ -18,19 +20,21 @@ trait AsyncOperations:
   /** Suspends the current [[Async]] context for at least `millis` milliseconds. */
   def sleep(millis: Long)(using async: Async): Unit =
     Future
-      .withResolver[Unit, caps.CapSet ^ {}]: resolver =>
-        val cancellable = async.scheduler.schedule(millis.millis, () => resolver.resolve(()))
+      .withResolver[Unit, caps.CapSet^{}]: (resolver: Future.Resolver[Unit, {}]^{cap.rd}) =>
+        val pureResolver = resolver.unsafeAssumePure
+        val cancellable = async.scheduler.schedule(millis.millis, () => pureResolver.resolve(()))
         resolver.onCancel: () =>
           cancellable.cancel()
-          resolver.rejectAsCancelled()
+          pureResolver.rejectAsCancelled()
       .link()
       .await
 
   /** Yields the current [[Async]] context, possibly allowing other computations to run. */
   def `yield`()(using async: Async) =
     Future
-      .withResolver[Unit, caps.CapSet ^ {}]: resolver =>
-        async.scheduler.execute(() => resolver.resolve(()))
+      .withResolver[Unit, {}]: (resolver: Future.Resolver[Unit, {}]^{cap.rd}) =>
+        val pureResolver = resolver.unsafeAssumePure
+        async.scheduler.execute(() => pureResolver.resolve(()))
       .link()
       .await
 

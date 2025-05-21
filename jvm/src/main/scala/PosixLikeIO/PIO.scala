@@ -1,7 +1,7 @@
 package PosixLikeIO
 
 import language.experimental.captureChecking
-import caps.CapSet
+import caps.cap
 
 import gears.async.Scheduler
 import gears.async.default.given
@@ -18,10 +18,11 @@ import scala.concurrent.ExecutionContext
 import scala.util.{Failure, Success, Try}
 
 import Future.Promise
+import gears.async.Future.Resolver
 
 object File:
-  extension[Cap^] (resolver: Future.Resolver[Int, Cap])
-    private[File] def toCompletionHandler = new CompletionHandler[Integer, ByteBuffer] {
+  extension[Cap^] (resolver: Future.Resolver[Int, Cap]^{cap.rd})
+    private[File] def toCompletionHandler: CompletionHandler[Integer, ByteBuffer]^{resolver} = new CompletionHandler[Integer, ByteBuffer] {
       override def completed(result: Integer, attachment: ByteBuffer): Unit = resolver.resolve(result)
       override def failed(e: Throwable, attachment: ByteBuffer): Unit = resolver.reject(e)
     }
@@ -44,10 +45,10 @@ class File(val path: String) {
       channel.get.close()
       channel = None
 
-  def read(buffer: ByteBuffer): Future[Int] =
+  def read(buffer: ByteBuffer): Future[Int]^{cap.rd} =
     assert(channel.isDefined)
 
-    Future.withResolver[Int, CapSet]: resolver =>
+    Future.withResolver[Int, {}]: (resolver: Resolver[Int, {}]^{cap.rd}) =>
       channel.get.read(
         buffer,
         0,
@@ -55,12 +56,12 @@ class File(val path: String) {
         resolver.toCompletionHandler
       )
 
-  def readString(size: Int, charset: Charset = StandardCharsets.UTF_8): Future[String] =
+  def readString(size: Int, charset: Charset = StandardCharsets.UTF_8): Future[String]^{cap.rd} =
     assert(channel.isDefined)
     assert(size >= 0)
 
     val buffer = ByteBuffer.allocate(size)
-    Future.withResolver[String, CapSet]: resolver =>
+    Future.withResolver[String, {}]: resolver =>
       channel.get.read(
         buffer,
         0,
@@ -72,10 +73,10 @@ class File(val path: String) {
         }
       )
 
-  def write(buffer: ByteBuffer): Future[Int] =
+  def write(buffer: ByteBuffer): Future[Int]^{cap.rd} =
     assert(channel.isDefined)
 
-    Future.withResolver[Int, CapSet]: resolver =>
+    Future.withResolver[Int, {}]: resolver =>
       channel.get.write(
         buffer,
         0,
@@ -83,7 +84,7 @@ class File(val path: String) {
         resolver.toCompletionHandler
       )
 
-  def writeString(s: String, charset: Charset = StandardCharsets.UTF_8): Future[Int] =
+  def writeString(s: String, charset: Charset = StandardCharsets.UTF_8): Future[Int]^{cap.rd} =
     write(ByteBuffer.wrap(s.getBytes(charset)))
 
   override def finalize(): Unit = {
@@ -114,19 +115,19 @@ class SocketUDP() {
       socket.get.close()
       socket = None
 
-  def send(data: ByteBuffer, address: String, port: Int): Future[Unit] =
+  def send(data: ByteBuffer, address: String, port: Int): Future[Unit]^{cap.rd} =
     assert(socket.isDefined)
 
-    Future.withResolver[Unit, CapSet]: resolver =>
+    Future.withResolver[Unit, {}]: resolver =>
       resolver.spawn:
         val packet: DatagramPacket =
           new DatagramPacket(data.array(), data.limit(), InetAddress.getByName(address), port)
         socket.get.send(packet)
 
-  def receive(): Future[DatagramPacket] =
+  def receive(): Future[DatagramPacket]^{cap.rd} =
     assert(socket.isDefined)
 
-    Future.withResolver[DatagramPacket, CapSet]: resolver =>
+    Future.withResolver[DatagramPacket, {}]: resolver =>
       resolver.spawn:
         val buffer = Array.fill[Byte](10 * 1024)(0)
         val packet: DatagramPacket = DatagramPacket(buffer, 10 * 1024)
@@ -141,12 +142,13 @@ class SocketUDP() {
 }
 
 object SocketUDP:
-  extension [T, Cap^](resolver: Future.Resolver[T, Cap])
-    private[SocketUDP] inline def spawn(body: => T)(using s: Scheduler) =
-      s.execute(() =>
+  extension [T, Cap^](resolver: Future.Resolver[T, Cap]^{cap.rd})
+    private[SocketUDP] def spawn(body: => T)(using s: Scheduler) =
+      import caps.unsafe.unsafeAssumePure
+      s.execute((() =>
         resolver.complete(Try(body).recover { case _: InterruptedException =>
           throw CancellationException()
-        })
+        })).unsafeAssumePure
       )
 
 object PIOHelper {

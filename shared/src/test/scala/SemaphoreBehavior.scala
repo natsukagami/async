@@ -1,3 +1,5 @@
+import language.experimental.captureChecking
+
 import gears.async.Async
 import gears.async.AsyncOperations
 import gears.async.AsyncOperations.sleep

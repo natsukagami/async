@@ -12,7 +12,7 @@ import Future.Promise
 class CompletionGroup extends Cancellable.Tracking:
   private val members: mutable.Set[Cancellable] = mutable.Set()
   private var canceled: Boolean = false
-  private var cancelWait: Option[Promise[Unit]^] = None
+  private var cancelWait = new CompletionGroup.CancelWait()
 
   /** Cancel all members */
   def cancel(): Unit =
@@ -26,8 +26,8 @@ class CompletionGroup extends Cancellable.Tracking:
   /** Wait for all members of the group to complete and unlink themselves. */
   private[async] def waitCompletion()(using Async): Unit =
     synchronized:
-      if members.nonEmpty && cancelWait.isEmpty then cancelWait = Some(Promise())
-    cancelWait.foreach(cWait => cWait.await)
+      if members.nonEmpty && cancelWait.isDone then cancelWait.reset()
+    cancelWait.awaitResult
     unlink()
 
   /** Add given member to the members set. If the group has already been cancelled, cancels that member immediately. */
@@ -40,7 +40,7 @@ class CompletionGroup extends Cancellable.Tracking:
   /** Remove given member from the members set if it is an element */
   def drop(member: Cancellable): Unit = synchronized:
     members -= member
-    if members.isEmpty && cancelWait.isDefined then cancelWait.get.complete(Success(()))
+    if members.isEmpty && !cancelWait.isDone then cancelWait.flush()
 
   def isCancelled = canceled
 
@@ -54,5 +54,30 @@ object CompletionGroup:
     override def add(member: Cancellable): Unit = ()
     override def drop(member: Cancellable): Unit = ()
   end Unlinked
+
+  private class CancelWait extends Async.OriginalSource[Unit]:
+    import caps.unsafe.unsafeAssumePure
+    var done = false
+    val listeners = mutable.Set[Listener[Unit]]()
+
+    def isDone = done
+    def reset() = done = false
+    def flush() = synchronized:
+      done = true
+      listeners.foreach(k => k.completeNow((), this))
+      listeners.clear()
+
+
+    def poll(k: Listener[Unit]^) = 
+      if done then { k.completeNow((), this); true }
+      else false
+
+    def addListener(k: Listener[Unit]^) = synchronized:
+      listeners += k.unsafeAssumePure
+
+    def dropListener(k: Listener[Unit]^) = synchronized:
+      listeners -= k.unsafeAssumePure
+
+
 
 end CompletionGroup

@@ -40,7 +40,7 @@ trait Async private[async] (using val support: AsyncSupport, val scheduler: supp
     *   [[Async.Source.awaitResult]] and [[Async$.await]] for extension methods calling [[Async!.await]] from the source
     *   itself.
     */
-  def await[T](src: Async.Source[T]^): T
+  def await[T](src: Async.Source[T]^{cap.rd}): T
 
   /** Returns the cancellation group for this [[Async]] context. */
   def group: CompletionGroup
@@ -62,7 +62,7 @@ object Async extends AsyncImpl:
     private val condVar = lock.newCondition()
 
     /** Wait for completion of async source `src` and return the result */
-    override def await[T](src: Async.Source[T]^): T =
+    override def await[T](src: Async.Source[T]^{cap.rd}): T =
       src
         .poll()
         .getOrElse:
@@ -208,13 +208,14 @@ object Async extends AsyncImpl:
       var resultOpt: Option[T] = None
       poll(Listener.acceptingListener { (x, _) => resultOpt = Some(x) })
       resultOpt
+  end Source
 
+  extension [T](src: Source[T]^{cap.rd})
     /** Waits for an item to arrive from the source. Suspends until an item returns.
       *
       * This is an utility method for direct waiting with `Async`, instead of going through listeners.
       */
-    final def awaitResult(using ac: Async) = ac.await(this)
-  end Source
+    def awaitResult(using ac: Async) = ac.await(src)
 
   // an opaque identity for symbols
   opaque type SourceSymbol[+T] = Long
@@ -225,7 +226,7 @@ object Async extends AsyncImpl:
   // ... it can be quickly obtained from any Source
   given[T]: scala.Conversion[Source[T], SourceSymbol[T]] = _.symbol
 
-  extension [T](src: Source[scala.util.Try[T]]^)
+  extension [T](src: Source[scala.util.Try[T]]^{cap.rd})
     /** Waits for an item to arrive from the source, then automatically unwraps it. Suspends until an item returns.
       * @see
       *   [[Source!.awaitResult awaitResult]] for non-unwrapping await.
@@ -319,7 +320,7 @@ object Async extends AsyncImpl:
     * @see
     *   [[Async$.select Async.select]] for a convenient syntax to race sources and awaiting them with [[Async]].
     */
-  def race[T](@caps.use sources: Seq[Source[T]^{cap.rd}]): Source[T]^{sources*} = raceImpl((v: T, _: SourceSymbol[T]) => v)(sources)
+  def race[T](sources: Seq[(Source[T]^{cap.rd})]): Source[T]^{sources*} = raceImpl((v: T, _: SourceSymbol[T]) => v)(sources*)
   def race[T](s1: Source[T]^{cap.rd}): Source[T]^{s1} = race(Seq(s1))
   def race[T](s1: Source[T]^{cap.rd}, s2: Source[T]^{cap.rd}): Source[T]^{s1, s2} = race(Seq(s1, s2))
   def race[T](s1: Source[T]^{cap.rd}, s2: Source[T]^{cap.rd}, s3: Source[T]^{cap.rd}): Source[T]^{s1, s2, s3} = race(Seq(s1, s2, s3))
@@ -328,11 +329,11 @@ object Async extends AsyncImpl:
     * @see
     *   [[Async$.select Async.select]] for a convenient syntax to race sources and awaiting them with [[Async]].
     */
-  def raceWithOrigin[T](@caps.use sources: (Source[T]^{cap.rd})*): Source[(T, SourceSymbol[T])]^{sources*} =
-    raceImpl((v: T, src: SourceSymbol[T]) => (v, src))(sources)
+  def raceWithOrigin[T](sources: (Source[T]^{cap.rd})*): Source[(T, SourceSymbol[T])]^{sources*} =
+    raceImpl((v: T, src: SourceSymbol[T]) => (v, src))(sources*)
 
   /** Pass first result from any of `sources` to the continuation */
-  private def raceImpl[T, U](map: (U, SourceSymbol[U]) -> T)(@caps.use sources: Seq[Source[U]^{cap.rd}]): Source[T]^{sources*} =
+  private def raceImpl[T, U](map: (U, SourceSymbol[U]) -> T)(sources: (Source[U]^{cap.rd})*): Source[T]^{sources*} =
     new Source[T]:
       val selfSrc = this
       def poll(k: Listener[T]^): Boolean =
@@ -414,11 +415,10 @@ object Async extends AsyncImpl:
     * @see
     *   [[Async$.select Async.select]] where [[SelectCase]] is used.
     */
-  trait SelectCase[+T]:
+  sealed trait SelectCase[+T]:
     type Src
-    val src: Source[Src]^{this}
-    val f: Src => T
-    inline final def apply(input: Src) = f(input)
+    val src: Source[Src]^{cap.rd}
+    def apply(input: Src): T
 
   extension [T](_src: Source[T]^{cap.rd})
     /** Attach a handler to `src`, creating a [[SelectCase]].
@@ -427,14 +427,14 @@ object Async extends AsyncImpl:
       */
     def handle[U](_f: T => U): SelectCase[U]^{_src, _f} = new SelectCase:
       type Src = T
-      val src = _src
-      val f: Src ->{_f} U = _f
+      val src: Source[Src]^{cap.rd} = _src
+      def apply(input: T) = _f(input)
 
     /** Alias for [[handle]]
       * @see
       *   [[Async$.select Async.select]] where [[SelectCase]] is used.
       */
-    inline def ~~>[U](_f: T => U): SelectCase[U]^{_src, _f} = _src.handle(_f)
+    def ~~>[U](_f: T => U): SelectCase[U]^{_src, _f} = _src.handle(_f)
 
   /** Race a list of sources with the corresponding handler functions, once an item has come back. Like [[race]],
     * [[select]] guarantees exactly one of the sources are polled. Unlike [[transformValuesWith]], the handler in
@@ -457,7 +457,8 @@ object Async extends AsyncImpl:
     *   }}}
     */
   def select[T](@caps.use cases: (SelectCase[T]^{cap.rd})*)(using Async) =
-    val (input, which) = raceWithOrigin(cases.map(k => k.src)*).awaitResult
+    val sources = cases.toList.map(k => k.src).toSeq
+    val (input, which) = raceWithOrigin(sources*).awaitResult
     val sc = cases.find(_.src.symbol == which).get
     sc(input.asInstanceOf[sc.Src])
 
